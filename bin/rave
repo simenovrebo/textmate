@@ -658,11 +658,18 @@ class CompileCapnp < Compiler
     source = base[:out]
     header = source.chomp('.c++') + '.h'
 
+    # Use CAPNP_BIN (set by ./configure to the vendored build) if defined, otherwise capnp from PATH
+    capnp_bin = config['CAPNP_BIN']
+    capnp     = capnp_bin ? File.join(capnp_bin, 'capnp') : 'capnp'
+    plugin    = capnp_bin ? File.join(capnp_bin, 'capnpc-c++') : 'c++'
+
     base.merge(
-      out:         [ source, header ],
-      flags:       "-oc++:#{File.dirname(source).shellescape} --src-prefix=#{File.dirname(file).shellescape}",
-      command:     'capnp compile $flags $in',
-      description: 'Cap’n Proto ‘${in}’…',
+      out:          [ source, header ],
+      flags:        "-o#{plugin.shellescape}:#{File.dirname(source).shellescape} --src-prefix=#{File.dirname(file).shellescape}",
+      capnp:        capnp.shellescape,
+      command:      '$capnp compile $flags $in',
+      description:  'Cap’n Proto ‘${in}’…',
+      dependencies: capnp_bin ? [ capnp, plugin ] : nil,
     )
   end
 end
