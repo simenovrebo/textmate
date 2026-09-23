@@ -19,3 +19,6 @@
 [submodule "Applications/SyntaxMate/resources/SyntaxMate.tmBundle"]
 	path = Applications/SyntaxMate/resources/SyntaxMate.tmBundle
 	url = https://github.com/shpakovski/syntaxmate.tmbundle.git
+[submodule "vendor/capnp/vendor"]
+	path = vendor/capnp/vendor
+	url = https://github.com/capnproto/capnproto.git
