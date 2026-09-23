@@ -9,6 +9,7 @@
 //
 // Only URLs in “URL position” are rewritten, i.e. when file:// is preceded by one of " ' = ( which covers
 // attribute values, <base href>, CSS url(…), and string literals in inline scripts, but leaves text alone.
+// A file:// URL that is a query parameter, as in txmt://open?url=file://…, is also left alone.
 
 struct file_url_rewriter_t
 {
@@ -26,7 +27,7 @@ struct file_url_rewriter_t
 			if(!last && available < kFileScheme.size() && kFileScheme.compare(0, available, _pending, i, available) == 0)
 				break; // might be the beginning of “file://”, wait for more data
 
-			if(_pending.compare(i, kFileScheme.size(), kFileScheme) == 0 && _previous != '\0' && std::strchr("\"'=(", _previous))
+			if(_pending.compare(i, kFileScheme.size(), kFileScheme) == 0 && _previous != '\0' && std::strchr("\"'=(", _previous) && !(_previous == '=' && _inQuery))
 			{
 				res += "tm-file://";
 				i += kFileScheme.size();
@@ -34,8 +35,13 @@ struct file_url_rewriter_t
 			}
 			else
 			{
-				_previous = _pending[i];
-				res += _pending[i++];
+				char const ch = _pending[i++];
+				if(ch == '?')
+					_inQuery = true;
+				else if(ch != '\0' && std::strchr(" \t\n\r\"'<>()", ch))
+					_inQuery = false;
+				_previous = ch;
+				res += ch;
 			}
 		}
 		_pending.erase(0, i);
@@ -51,6 +57,7 @@ private:
 	inline static std::string const kFileScheme = "file://";
 	std::string _pending;
 	char _previous = ' ';
+	bool _inQuery  = false; // after a “?” in the current attribute value or string
 };
 
 #endif /* end of include guard: FILE_URL_REWRITER_H_4KQ7XB2M */

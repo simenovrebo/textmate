@@ -28,6 +28,19 @@ void test_text_is_unchanged ()
 	OAK_ASSERT_EQ(rewrite(""),                                      "");
 }
 
+void test_query_parameters_are_unchanged ()
+{
+	OAK_ASSERT_EQ(rewrite("<a href=\"txmt://open?url=file:///a.txt&amp;line=2\">"), "<a href=\"txmt://open?url=file:///a.txt&amp;line=2\">");
+	OAK_ASSERT_EQ(rewrite("<a href='txmt://open?line=2&url=file:///a.txt'>"),       "<a href='txmt://open?line=2&url=file:///a.txt'>");
+	OAK_ASSERT_EQ(rewrite("<a href=txmt://open?url=file:///a.txt>"),                "<a href=txmt://open?url=file:///a.txt>");
+	OAK_ASSERT_EQ(rewrite("location = 'txmt://open?url=file://' + path;"),         "location = 'txmt://open?url=file://' + path;");
+
+	// A query ends with the attribute value or string
+	OAK_ASSERT_EQ(rewrite("<a href='x?y=1'><img src=file:///a.png>"),               "<a href='x?y=1'><img src=tm-file:///a.png>");
+	OAK_ASSERT_EQ(rewrite("<a href='x?y=1' src='file:///a.png'>"),                  "<a href='x?y=1' src='tm-file:///a.png'>");
+	OAK_ASSERT_EQ(rewrite("<img src='/cgi?path=' + 'file:///a.png'>"),               "<img src='/cgi?path=' + 'tm-file:///a.png'>");
+}
+
 void test_consecutive_urls ()
 {
 	OAK_ASSERT_EQ(rewrite("\"file:///a\" 'file:///b' (file:///c)"), "\"tm-file:///a\" 'tm-file:///b' (tm-file:///c)");
