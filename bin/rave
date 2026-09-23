@@ -1279,6 +1279,9 @@ module Target
           description: 'Create ‘${out}’…',
         }
 
+        # Files embedded in the target (e.g. a tool via ‘files @Tool’) are used by the code under test, so build them first
+        embedded = assets(archs, targets).map(&:first)
+
         objects, ln_flags, deps = link_inputs(target, targets)
         rules << {
           name:         'Link',
@@ -1296,7 +1299,7 @@ module Target
           out:          runner + '.passed',
           command:      "#{__dir__}/run_test $in && touch $out",
           description:  'Test ‘${in}’…',
-          dependencies: "#{__dir__}/run_test",
+          dependencies: [ "#{__dir__}/run_test", *embedded ],
           pool:         'console',
         }
         passed << rules.last[:out] if kind == :tests # cxx_tests are interactive GUI tests
@@ -1307,7 +1310,7 @@ module Target
           out:          File.join(testdir, ".always-run-#{info[:phony]}"),
           command:      "#{__dir__}/run_test $in",
           description:  'Test ‘${in}’…',
-          dependencies: "#{__dir__}/run_test",
+          dependencies: [ "#{__dir__}/run_test", *embedded ],
           pool:         'console',
         }
 
