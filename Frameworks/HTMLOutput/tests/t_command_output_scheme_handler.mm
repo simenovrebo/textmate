@@ -170,31 +170,6 @@ void test_unknown_and_untrusted ()
 // = End to end: streamed command output in a real WKWebView =
 // ============================================================
 
-static id EvaluateJavaScript (WKWebView* webView, NSString* script)
-{
-	__block id result;
-	dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-	OnMain(^{
-		[webView evaluateJavaScript:script completionHandler:^(id res, NSError* error){
-			result = res;
-			dispatch_semaphore_signal(sem);
-		}];
-	});
-	dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
-	return result;
-}
-
-static BOOL WaitForJavaScript (WKWebView* webView, NSString* condition)
-{
-	for(size_t i = 0; i < 200; ++i) // up to 10 s
-	{
-		if([EvaluateJavaScript(webView, condition) boolValue])
-			return YES;
-		usleep(50000);
-	}
-	return NO;
-}
-
 void test_web_view ()
 {
 	__block WKWebView* webView;

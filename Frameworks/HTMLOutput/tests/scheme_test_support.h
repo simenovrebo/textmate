@@ -80,4 +80,49 @@ static NSString* MakeTemporaryDirectory ()
 	return mkdtemp(&tmpl[0]) ? [NSString stringWithUTF8String:tmpl.c_str()] : nil;
 }
 
+static id EvaluateJavaScript (WKWebView* webView, NSString* script)
+{
+	__block id result;
+	dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+	OnMain(^{
+		[webView evaluateJavaScript:script completionHandler:^(id res, NSError* error){
+			result = res;
+			dispatch_semaphore_signal(sem);
+		}];
+	});
+	dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
+	return result;
+}
+
+static BOOL WaitForJavaScript (WKWebView* webView, NSString* condition)
+{
+	for(size_t i = 0; i < 200; ++i) // up to 10 s
+	{
+		if([EvaluateJavaScript(webView, condition) boolValue])
+			return YES;
+		usleep(50000);
+	}
+	return NO;
+}
+
+// Run an async function body (may use await, return a value or a promise) in the page, waiting up to 10 s
+static id CallAsyncJavaScript (WKWebView* webView, NSString* body, NSError** errorOut = nullptr)
+{
+	__block id result;
+	__block NSError* err;
+	dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+	OnMain(^{
+		[webView callAsyncJavaScript:body arguments:nil inFrame:nil inContentWorld:WKContentWorld.pageWorld completionHandler:^(id res, NSError* error){
+			result = res;
+			err = error;
+			dispatch_semaphore_signal(sem);
+		}];
+	});
+	if(dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC)) != 0)
+		err = [NSError errorWithDomain:NSCocoaErrorDomain code:NSUserCancelledError userInfo:@{ NSLocalizedDescriptionKey: @"Timeout" }];
+	if(errorOut)
+		*errorOut = err;
+	return result;
+}
+
 #endif /* end of include guard: SCHEME_TEST_SUPPORT_H_8NVX2Q4L */
