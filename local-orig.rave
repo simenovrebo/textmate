@@ -25,7 +25,8 @@ config release {
 
 extend TextMate {
 	config release {
-		notarize "${APPLE_NOTARIZE_USER}" "${APPLE_NOTARIZE_PASS}" "com.macromates.${target}"
+		# Keychain profile created with: xcrun notarytool store-credentials ${APPLE_NOTARIZE_PROFILE}
+		notarize "${APPLE_NOTARIZE_PROFILE}"
 
 		set changes "${TEXTMATE_CHANGES}"
 		set version "${TEXTMATE_VERSION}"

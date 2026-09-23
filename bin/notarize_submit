@@ -1,0 +1,32 @@
+#!/bin/sh
+# Submit a zip archive for notarization and wait for the result.
+#
+# Usage: notarize_submit <keychain profile> <archive> <output>
+#
+# Credentials are read from a keychain profile, which is created once with:
+#
+#     xcrun notarytool store-credentials <keychain profile>
+#
+# On success the notarytool result (property list) is written to <output>,
+# otherwise the notarization log is printed and the exit code is non-zero.
+set -e
+
+profile=$1
+archive=$2
+out=$3
+
+xcrun notarytool submit "$archive" --keychain-profile "$profile" --wait --output-format plist > "$out~"
+
+status=$(/usr/bin/plutil -extract status raw -o - "$out~" 2>/dev/null || echo "unknown")
+if [ "$status" != "Accepted" ]; then
+	echo >&2 "*** Notarization of ‘${archive}’ failed with status: ${status}"
+	if id=$(/usr/bin/plutil -extract id raw -o - "$out~" 2>/dev/null); then
+		xcrun notarytool log "$id" --keychain-profile "$profile" >&2 || true
+	else
+		cat >&2 "$out~"
+	fi
+	rm -f "$out~"
+	exit 1
+fi
+
+mv "$out~" "$out"

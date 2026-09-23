@@ -298,6 +298,7 @@ class Parser
               target[command] = args.map { |value| expand_variables(value, env) }.join(' ')
               target[:dir] = env['dir']
             when :notarize
+              abort "#{target_name}: notarize takes a single argument, the notarytool keychain profile (see bin/notarize_submit)" unless args.size == 1
               target[command] = args.map { |value| expand_variables(value, env) }
             when :files, :copy
               target[command] ||= {}
@@ -1242,23 +1243,16 @@ module Target
             dependencies: signature(archs, targets),
           }
 
-          rules << { user: args[0], pass: args[1], bundle: args[2] }.merge(
-            name:        'NotarizeSubmit',
-            in:          rules.last[:out],
-            out:         "#{guardfile}-submit.xml",
-            command:     'xcrun altool --notarize-app > $out~ -u "$user" -p "$pass" --output-format xml -f $in --primary-bundle-id "$bundle" -t osx && mv $out~ $out',
-            description: 'Submit ‘${in}’ for notarization…',
-          )
-
-          rules << { user: args[0], pass: args[1] }.merge(
-            name:         'NotarizeStatus',
+          rules << {
+            name:         'NotarizeSubmit',
             in:           rules.last[:out],
-            out:          "#{guardfile}-status.xml",
-            command:      "#{__dir__}/notarize_await \"xcrun altool --notarization-info '$(plutil -extract notarization-upload.RequestUUID xml1 -o - $in|sed -n 's/.*<string>\\(.*\\)<\\/string>.*/\\1/p')' -u '$user' -p '$pass' --output-format xml\" > $out~ && mv $out~ $out",
-            description:  'Waiting for notarization…',
-            dependencies: "#{__dir__}/notarize_await",
+            out:          "#{guardfile}-result.plist",
+            profile:      args[0].shellescape,
+            command:      "#{__dir__}/notarize_submit $profile $in $out",
+            description:  'Notarize ‘${in}’…',
+            dependencies: "#{__dir__}/notarize_submit",
             pool:         'console',
-          )
+          }
 
           if application
             rules << {
