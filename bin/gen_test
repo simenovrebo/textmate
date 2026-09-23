@@ -1,7 +1,5 @@
-#!/System/Library/Frameworks/Ruby.framework/Versions/Current/usr/bin/ruby -w
-# Do not depend on the user’s locale (test files contain non-ASCII characters)
-Encoding.default_external = Encoding::UTF_8
-Encoding.default_internal = Encoding::UTF_8
+#!/System/Library/Frameworks/Ruby.framework/Versions/Current/usr/bin/ruby -wEutf-8:utf-8
+# -E: do not depend on the user’s locale (test files contain non-ASCII characters)
 
 require 'pathname'
 require 'erb'
@@ -34,10 +32,10 @@ ARGV.each do |file|
   end
 end
 
-STDOUT << ERB.new(DATA.read, 0, '-<>').result(binding)
+STDOUT << ERB.new(DATA.read, trim_mode: '-<>').result(binding)
 
 __END__
-#line 37 "<%= $PROGRAM_NAME %>"
+#line 39 "<%= $PROGRAM_NAME %>"
 static std::string oak_format (char const* format, ...) __attribute__ ((format (printf, 1, 2)));
 static std::string oak_format (char const* format, ...)
 {
@@ -128,7 +126,7 @@ std::string oak_format_bad_relation (char const* lhs, char const* op, char const
 #define OAK_MASSERT_NE(msg, lhs, rhs) if(!((lhs) != (rhs))) oak_assertion_error(msg, __FILE__, __LINE__)
 
 <%= user_code %>
-#line 128 "<%= $PROGRAM_NAME %>"
+#line 130 "<%= $PROGRAM_NAME %>"
 
 static double const AppVersion = 1.0;
 
