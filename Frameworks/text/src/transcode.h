@@ -31,6 +31,10 @@ namespace text
 				}
 			}
 
+			// macOS’s iconv loses characters when transliterating several characters to longer sequences
+			// (e.g. “Æød…” becomes “AEo......”), but not when given one character at a time
+			_one_character_at_a_time = strcasecmp(fromCharset.c_str(), "UTF-8") == 0 && strcasestr(toCharset.c_str(), "//TRANSLIT");
+
 			_handle = iconv_open(toCharset.c_str(), fromCharset.c_str());
 			if(_handle == (iconv_t)-1)
 				perrorf("transcode_t: iconv_open(\"%s\", \"%s\")", toCharset.c_str(), fromCharset.c_str());
@@ -98,7 +102,17 @@ namespace text
 			while(inBufLeft)
 			{
 				size_t rc;
-				if(_partial_sequence.empty())
+				if(_partial_sequence.empty() && _one_character_at_a_time)
+				{
+					size_t len = 1;
+					while(len < inBufLeft && (inBuf[len] & 0xC0) == 0x80)
+						++len;
+
+					size_t characterLeft = len;
+					rc = iconv(_handle, &inBuf, &characterLeft, &_dest, &_left);
+					inBufLeft -= len - characterLeft;
+				}
+				else if(_partial_sequence.empty())
 				{
 					rc = iconv(_handle, &inBuf, &inBufLeft, &_dest, &_left);
 				}
@@ -184,6 +198,7 @@ namespace text
 		}
 
 		iconv_t _handle = (iconv_t)-1;
+		bool _one_character_at_a_time = false;
 		size_t _invalid_count = 0;
 
 		std::string _skip_prefix;

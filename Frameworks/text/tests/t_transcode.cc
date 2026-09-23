@@ -104,3 +104,11 @@ void test_transcode ()
 		OAK_ASSERT_EQ(transcode.invalid_count(), 3);
 	}
 }
+
+void test_transliterate ()
+{
+	// macOS’s iconv loses characters when transliterating several characters to longer sequences in one call
+	OAK_ASSERT_EQ(convert_batch("UTF-8", "ASCII//TRANSLIT", "Æblegrød…"),              "AEblegrod...");
+	OAK_ASSERT_EQ(convert_batch("UTF-8", "ASCII//TRANSLIT", "ÆØÅ æøå … “quote” done"), "AEOA aeoa ... \"quote\" done");
+	OAK_ASSERT_EQ(convert(      "UTF-8", "ASCII//TRANSLIT", "ÆØÅ æøå … “quote” done"), "AEOA aeoa ... \"quote\" done");
+}
