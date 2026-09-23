@@ -1,6 +1,6 @@
 # Migrating HTML Output from WebView to WKWebView
 
-Status: phases 1–6 done. HTML output uses `WKWebView`; the legacy `WebView` code has been removed. Remaining: HTML tooltips in the Dialog2 plug-in (phase 7).
+Status: done. HTML output and the HTML tooltips of the Dialog2 plug-in use `WKWebView`; the legacy `WebView` code has been removed.
 
 The HTML output view (`OakHTMLOutputView`, used for bundle commands with HTML output) is built on the legacy `WebView`, deprecated since macOS 10.14 and responsible for 73 of the remaining deprecation warnings. This document describes what has to change, what bundles depend on, the risks, and the order of work.
 
@@ -147,7 +147,7 @@ Each phase is committed and pushed separately and leaves TextMate working.
    - The `TextMate` bridge sends command events to the web view that sent the message, as windows opened by the page share the configuration.
 5. **Output view features** — done: auto scroll (`kHOAutoScrollJavaScript`, keeps the page at the bottom unless the user scrolls up), scroll position kept by `setContent:` (which now loads the HTML as command output, so `file://` URLs and the `TextMate` object work as for streamed output), find (`WKFindConfiguration`), copy selection to the find/replace pasteboard, View Source (the original output, the file for `tm-file://`, otherwise the DOM), printing, and the “Stop command?” sheet. The last 10 outputs of each view are kept, so going back to them works.
 6. **Remove the legacy code** — done: `OakFileHandleURLProtocol`, `HTMLTMFileDummyProtocol`, `HOJSBridge`, `HOAutoScroll`, `WebView Additions.mm`, and `error_not_found.html` are gone, and with them the deprecation warnings in HTMLOutput and OakCommand. The documentation of the JavaScript API (in the TextMate manual) needs no change, as the API is compatible.
-7. **HTML tooltips** in the Dialog2 plug-in. Requires a fork of textmate/dialog; independent of phases 1–6.
+7. **HTML tooltips** — done, in the dialog fork (github.com/simenovrebo/dialog, now the `PlugIns/dialog` submodule): `WKWebView`, with the user’s font set in the style sheet instead of `WebPreferences`, and sized to the content measured with `evaluateJavaScript:` (the web view is laid out at its maximum size before loading). Tooltip windows were never closed, only ordered out, so each one leaked; they are now closed after fading out. Checked with a harness showing text, long HTML, and transparent tooltips, dismissing them with a key press.
 
 ## Found Along the Way
 
