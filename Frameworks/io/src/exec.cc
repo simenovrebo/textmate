@@ -27,7 +27,13 @@ namespace io
 					posix_spawnattr_t flags;
 					if(posix_spawnattr_init(&flags) == 0)
 					{
-						if(posix_spawnattr_setflags(&flags, POSIX_SPAWN_SETSIGDEF|POSIX_SPAWN_CLOEXEC_DEFAULT) == 0)
+						// Reset all signals to their default action and unblock them, so that the child does not inherit
+						// signals ignored by TextMate or blocked by the spawning thread
+						sigset_t allSignals, noSignals;
+						sigfillset(&allSignals);
+						sigemptyset(&noSignals);
+
+						if(posix_spawnattr_setsigdefault(&flags, &allSignals) == 0 && posix_spawnattr_setsigmask(&flags, &noSignals) == 0 && posix_spawnattr_setflags(&flags, POSIX_SPAWN_SETSIGDEF|POSIX_SPAWN_SETSIGMASK|POSIX_SPAWN_CLOEXEC_DEFAULT) == 0)
 						{
 							char* argv[args.size() + 1];
 							std::transform(args.begin(), args.end(), &argv[0], [](std::string const& str){ return (char*)str.c_str(); });

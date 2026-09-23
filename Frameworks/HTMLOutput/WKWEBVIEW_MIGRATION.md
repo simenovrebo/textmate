@@ -153,7 +153,7 @@ Each phase is committed and pushed separately and leaves TextMate working.
 
 - The `file://` rewriter also rewrote query parameters, e.g. `txmt://open?url=file://…` in every “open in TextMate” link. A `file://` following `=` after a `?` in the same attribute value or string is now left alone.
 
-- `io::spawn` sets `POSIX_SPAWN_SETSIGDEF` without a signal set (`posix_spawnattr_setsigdefault`), so it resets no signals and children inherit ignored signals (e.g. SIGINT when TextMate was started with it ignored). The new bridge does not rely on SIGINT alone, but `io::spawn` itself should be fixed separately as it affects all commands.
+- `io::spawn` set `POSIX_SPAWN_SETSIGDEF` without a signal set, so children inherited ignored signals (e.g. SIGINT when TextMate was started with it ignored), and the signal mask of the spawning thread. Fixed: all signals are reset and unblocked. The bridge still escalates to SIGTERM and SIGKILL for commands that ignore SIGINT themselves.
 
 ## Testing
 
