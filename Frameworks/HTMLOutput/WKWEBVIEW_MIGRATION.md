@@ -1,6 +1,6 @@
 # Migrating HTML Output from WebView to WKWebView
 
-Status: phases 1–2 done (prototypes, scheme handlers). The handlers are not yet used by the view.
+Status: phases 1–3 done (prototypes, scheme handlers, JavaScript bridge). Not yet used by the view.
 
 The HTML output view (`OakHTMLOutputView`, used for bundle commands with HTML output) is built on the legacy `WebView`, deprecated since macOS 10.14 and responsible for 73 of the remaining deprecation warnings. This document describes what has to change, what bundles depend on, the risks, and the order of work.
 
@@ -133,11 +133,20 @@ Each phase is committed and pushed separately and leaves TextMate working.
    - `src/scheme/HOFileSchemeHandler`: `tm-file://` (files, directories with `index.html`, not-found page, HTML rewriting). Refuses requests from other pages, so a web page cannot read local files through it.
    - `src/scheme/HOCommandOutputSchemeHandler`: streams command output (`URLForOutputFromFileHandle:processIdentifier:name:` replaces the request properties), kills the process group when stopped, and records the output so it can be reloaded and shown by View Source (previously a reload showed no output).
    - Tests (`ninja HTMLOutput/test`): unit tests with a fake `WKURLSchemeTask` (which, like WebKit, flags use after stop) and an end-to-end test streaming output into a `WKWebView`.
-3. **JavaScript bridge.** User script with the `TextMate` object (including the `src`/`href` rewriting) and message handlers; asynchronous `system()`, synchronous `system()` via XHR, `outputString`, `onreadoutput`/`onreaderror`, `write`/`close`/`cancel`, `isBusy`, `progress`, `log`, `open`. Tests: an HTML test page exercising every call, run in a hidden `WKWebView`, reporting results back through the bridge.
+3. **JavaScript bridge** — done:
+   - `src/bridge/HOScriptBridgeJS.h`: the `TextMate` object (user script), only defined for `x-txmt-filehandle` and `tm-file` pages.
+   - `src/bridge/HOScriptBridge`: message handler for asynchronous `system()`, `write`/`close`/`cancel`, `isBusy`, `progress`, `log`, `open`, plus the `x-txmt-js` scheme handler for synchronous `system()`. Verifies the origin of every message and request. `enabled` replaces `disableJavaScriptAPI`; `environment`, `delegate` (status bar), `logHandler`, `openHandler`.
+   - Compatible details kept: `handler.call(handler, command)`, `outputString` holds only the last chunk when `onreadoutput` is set, setting `onreadoutput` calls it with the current output, the 15 second warning for synchronous commands.
+   - `cancel()` escalates from SIGINT to SIGTERM and SIGKILL (see below).
+   - Tests: the bridge in a `WKWebView` with a command output page, including untrusted pages and the disabled state.
 4. **Browser view.** Replace the `WebView` in `HOBrowserView` and `HOWebViewDelegateHelper`: navigation policy (`txmt://`, external links, protocol-relative URLs), UI delegate (alerts, file upload, new windows, `window.close()`), status text, console logging, progress, back/forward. Update the three `webView` uses in `OakCommand.mm`.
 5. **Output view features.** Auto scroll, scroll restore for atomic updates, find, copy selection to find/replace pasteboard, View Source, printing, stop/reload with the “Stop command?” sheet.
 6. **Remove the legacy code** (`OakFileHandleURLProtocol`, `HTMLTMFileDummyProtocol`, `WebView Additions.mm`, WebKit-legacy imports), and update the documentation of the JavaScript API.
 7. **HTML tooltips** in the Dialog2 plug-in. Requires a fork of textmate/dialog; independent of phases 1–6.
+
+## Found Along the Way
+
+- `io::spawn` sets `POSIX_SPAWN_SETSIGDEF` without a signal set (`posix_spawnattr_setsigdefault`), so it resets no signals and children inherit ignored signals (e.g. SIGINT when TextMate was started with it ignored). The new bridge does not rely on SIGINT alone, but `io::spawn` itself should be fixed separately as it affects all commands.
 
 ## Testing
 
