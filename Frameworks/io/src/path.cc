@@ -815,12 +815,7 @@ namespace path
 			{
 				if(CFURLRef url = CFURLCreateWithString(kCFAllocatorDefault, cf::wrap("https://openradar.appspot.com/10261043"), nullptr))
 				{
-					if(CFMutableArrayRef urls = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks))
-					{
-						CFArrayAppendValue(urls, url);
-						LSOpenURLsWithRole(urls, kLSRolesViewer, nullptr, nullptr, nullptr, 0);
-						CFRelease(urls);
-					}
+					LSOpenCFURLRef(url, nullptr);
 					CFRelease(url);
 				}
 			}
@@ -861,7 +856,13 @@ namespace path
 			}
 			else
 			{
+				// Callers need a path that does not exist yet (e.g. GIT_INDEX_FILE or a directory to create).
+				// mktemp() is deprecated because another user could create the file first, but the directory
+				// is per-user (_CS_DARWIN_USER_TEMP_DIR or _CS_DARWIN_USER_CACHE_DIR) and not writable by others.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 				mktemp(&str[0]);
+#pragma clang diagnostic pop
 			}
 		}
 		return str;

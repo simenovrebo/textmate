@@ -117,27 +117,15 @@ static NSURL* CanonicalURL (NSURL* url, BOOL isDirectoryFlag = YES)
 - (void)openDocumentURLs:(NSArray<NSURL*>*)documentURLs withApplicationURL:(NSURL*)applicationURL
 {
 	// Since we can have multiple applications for the same bundle identifier, e.g. Xcode release and beta, we must open by URL.
-	// Unfortunately the API that is URL-based does not allow opening multiple documents at once, so we use AppleScript.
+	void(^completionHandler)(NSRunningApplication*, NSError*) = ^(NSRunningApplication* app, NSError* error){
+		if(error)
+			os_log_error(OS_LOG_DEFAULT, "Failed to open documents with %{public}@: %{public}@", applicationURL, error.localizedDescription);
+	};
 
-	NSAppleEventDescriptor* listDesc = [NSAppleEventDescriptor listDescriptor];
-	NSInteger nextIndex = 1;
-
-	for(NSURL* url in documentURLs)
-	{
-		if(NSData* urlData = [url.absoluteString dataUsingEncoding:NSUTF8StringEncoding])
-		{
-			if(NSAppleEventDescriptor* urlDesc = [NSAppleEventDescriptor descriptorWithDescriptorType:typeFileURL data:urlData])
-				[listDesc insertDescriptor:urlDesc atIndex:nextIndex++];
-		}
-	}
-
-	NSAppleEventDescriptor* odocEvent = [NSAppleEventDescriptor appleEventWithEventClass:kCoreEventClass eventID:kAEOpenDocuments targetDescriptor:nil returnID:kAutoGenerateReturnID transactionID:kAnyTransactionID];
-	[odocEvent setParamDescriptor:listDesc forKeyword:keyDirectObject];
-	NSDictionary* launchOptions = @{ NSWorkspaceLaunchConfigurationAppleEvent: odocEvent };
-
-	NSError* err = nil;
-	if(![NSWorkspace.sharedWorkspace launchApplicationAtURL:applicationURL options:NSWorkspaceLaunchDefault configuration:launchOptions error:&err])
-		NSLog(@"%@: %@", applicationURL, err.localizedDescription);
+	NSWorkspaceOpenConfiguration* configuration = [NSWorkspaceOpenConfiguration configuration];
+	if(documentURLs.count)
+		[NSWorkspace.sharedWorkspace openURLs:documentURLs withApplicationAtURL:applicationURL configuration:configuration completionHandler:completionHandler];
+	else	[NSWorkspace.sharedWorkspace openApplicationAtURL:applicationURL configuration:configuration completionHandler:completionHandler];
 }
 
 // ==========================

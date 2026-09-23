@@ -67,8 +67,21 @@ static void launch_app (bool disableUntitled)
 {
 	disable_sudo_helper_t helper;
 
-	NSError* error;
-	if(![NSWorkspace.sharedWorkspace launchApplicationAtURL:find_app() options:NSWorkspaceLaunchWithoutActivation|NSWorkspaceLaunchWithoutAddingToRecents configuration:(disableUntitled ? @{ NSWorkspaceLaunchConfigurationArguments: @[ @"-disableNewDocumentAtStartup", @"1" ] } : nil) error:&error])
+	NSWorkspaceOpenConfiguration* configuration = [NSWorkspaceOpenConfiguration configuration];
+	configuration.activates         = NO;
+	configuration.addsToRecentItems = NO;
+	if(disableUntitled)
+		configuration.arguments = @[ @"-disableNewDocumentAtStartup", @"1" ];
+
+	__block NSError* error;
+	dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+	[NSWorkspace.sharedWorkspace openApplicationAtURL:find_app() configuration:configuration completionHandler:^(NSRunningApplication* app, NSError* err){
+		error = err;
+		dispatch_semaphore_signal(sem);
+	}];
+	dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+
+	if(error)
 	{
 		fprintf(stderr, "Can’t launch TextMate.app: %s\n", error.localizedDescription.UTF8String);
 		exit(EX_UNAVAILABLE);
