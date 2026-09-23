@@ -1,9 +1,27 @@
 #include "info.h"
 #include <oak/debug.h>
 
-/* CrashReporter info */
-char const* __crashreporter_info__ = nullptr;
-asm(".desc ___crashreporter_info__, 0x10");
+// Crash reports include the message of the annotations in the __DATA,__crash_info section (the layout of
+// CrashReporterClient.h, version 5, as used by e.g. LLVM). This replaces the __crashreporter_info__ symbol,
+// whose REFERENCED_DYNAMICALLY flag is deprecated.
+struct crashreporter_annotations_t
+{
+	uint64_t version;
+	uint64_t message;
+	uint64_t signature_string;
+	uint64_t backtrace;
+	uint64_t message2;
+	uint64_t thread;
+	uint64_t dialog_mode;
+	uint64_t abort_cause;
+};
+
+extern "C" __attribute__ ((used, section ("__DATA,__crash_info"))) crashreporter_annotations_t gCRAnnotations = { 5 };
+
+static void set_crash_reporter_message (char const* message)
+{
+	gCRAnnotations.message = (uint64_t)message;
+}
 
 namespace
 {
@@ -37,7 +55,7 @@ namespace
 	private:
 		void update ()
 		{
-			__crashreporter_info__ = nullptr;
+			set_crash_reporter_message(nullptr);
 
 			bool first = true;
 			_description.clear();
@@ -49,7 +67,7 @@ namespace
 			}
 
 			if(!_description.empty())
-				__crashreporter_info__ = _description.c_str();
+				set_crash_reporter_message(_description.c_str());
 		}
 
 		std::vector<std::string> _stack;
