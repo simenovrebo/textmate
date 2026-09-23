@@ -68,7 +68,7 @@ static std::tuple<pid_t, int, int> my_fork (char const* cmd, int inputRead, std:
 
 	oak::c_array env(environment);
 
-	pid_t pid = vfork();
+	pid_t pid = fork();
 	if(pid == 0)
 	{
 		int const signals[] = { SIGINT, SIGTERM, SIGPIPE, SIGUSR1 };

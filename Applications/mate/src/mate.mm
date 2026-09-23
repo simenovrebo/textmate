@@ -88,7 +88,7 @@ static void install_auth_tool ()
 			exit(EX_UNAVAILABLE);
 		}
 
-		pid_t pid = vfork();
+		pid_t pid = fork();
 		if(pid == 0)
 		{
 			execl(arg0, arg0, "--install", nullptr);

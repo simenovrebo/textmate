@@ -43,7 +43,7 @@ static std::string plist_content ()
 
 static void launch_control (char const* command, std::string const& argument)
 {
-	pid_t pid = vfork();
+	pid_t pid = fork();
 	if(pid == 0)
 	{
 		execl("/bin/launchctl", "/bin/launchctl", command, argument.c_str(), nullptr);
