@@ -211,9 +211,6 @@ in the hierachy returns YES, the key (equivalent) event is then passed to the me
 
 - (void)keyDown:(NSEvent*)anEvent
 {
-	// WKWebView passes escape on when the page did not handle it, e.g. to close an HTML output window
-	if(anEvent.keyCode == 53 /* kVK_Escape */)
-		[self.nextResponder tryToPerform:@selector(cancelOperation:) with:self];
 }
 
 // =====================
@@ -502,10 +499,9 @@ in the hierachy returns YES, the key (equivalent) event is then passed to the me
 // = Printing =
 // ============
 
-- (IBAction)printDocument:(id)sender
+- (NSPrintOperation*)printOperationWithPrintInfo:(NSPrintInfo*)info
 {
-	NSPrintInfo* info = [NSPrintInfo.sharedPrintInfo copy];
-
+	info = [info copy];
 	NSRect display = NSIntersectionRect(info.imageablePageBounds, (NSRect){ NSZeroPoint, info.paperSize });
 	info.leftMargin   = NSMinX(display);
 	info.rightMargin  = info.paperSize.width - NSMaxX(display);
@@ -515,7 +511,14 @@ in the hierachy returns YES, the key (equivalent) event is then passed to the me
 	NSPrintOperation* printer = [_webView printOperationWithPrintInfo:info];
 	printer.view.frame = _webView.bounds; // Without a frame, the pages are blank
 	[[printer printPanel] setOptions:[[printer printPanel] options] | NSPrintPanelShowsPaperSize | NSPrintPanelShowsOrientation];
+	return printer;
+}
 
-	[printer runOperationModalForWindow:self.window delegate:nil didRunSelector:NULL contextInfo:nil];
+- (IBAction)printDocument:(id)sender
+{
+	// WKWebView must print asynchronously: a synchronous runOperation keeps rendering pages
+	if(NSWindow* window = self.window)
+			[[self printOperationWithPrintInfo:NSPrintInfo.sharedPrintInfo] runOperationModalForWindow:window delegate:nil didRunSelector:NULL contextInfo:nil];
+	else	NSBeep();
 }
 @end

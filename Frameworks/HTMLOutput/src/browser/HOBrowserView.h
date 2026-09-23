@@ -22,6 +22,9 @@
 // Called for links the web view does not handle (txmt://, mailto:, …)
 - (void)openExternalURL:(NSURL*)url;
 
+// Used by printDocument: (margins set to the printable area)
+- (NSPrintOperation*)printOperationWithPrintInfo:(NSPrintInfo*)info;
+
 // Like window.close(): hide the HTML output pane or close the window
 - (void)close;
 @end

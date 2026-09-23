@@ -157,21 +157,11 @@ Each phase is committed and pushed separately and leaves TextMate working.
 
 ## Testing
 
-Automated (via `ninja HTMLOutput/test`, 36 tests): scheme handler streaming and stop, `tm-file` resolution (files, directories with `index.html`, missing files), the JavaScript API, and the output view: streamed output with title and `TextMate` object, stop (process group killed, completion handler called when the command terminates), `setContent:` (rewriting, scroll position), status text, `txmt://` links with the project, and protocol-relative links.
+Automated (via `ninja HTMLOutput/test`, 41 tests): scheme handler streaming and stop, `tm-file` resolution (files, directories with `index.html`, missing files), the JavaScript API, and the output view: streamed output with title and `TextMate` object, stop (process group killed, completion handler called when the command terminates), `setContent:` (rewriting, scroll position), status text, `txmt://` links with the project, and protocol-relative links. In a window with real key events: escape and ⌘. reach `cancelOperation:` (closing an output window) unless the page handles them, `window.close()` hides the output and the view can be reused, find via the responder chain, and printing (one non-blank page).
 
 Checked with real bundle output (streamed into the view off-screen, with snapshots): Ruby → Run (themes, `webpreview.js`, `txmt://` backtrace links, `javascript:` links calling `TextMate.system`) and Markdown → Preview (`<base href="file://…">`, relative images in a folder with a space, relative link to a missing file).
 
-Still to check in the running app (interaction the off-screen checks cannot cover: ⌘., escape, find panel, printing, swipe):
-
-| Bundle / command | Exercises |
-|---|---|
-| Ruby → Run Script | streaming output, auto scroll, `isBusy`, `file://` stylesheet |
-| Git → Log / Show Uncommitted Changes | synchronous and asynchronous `system()`, `outputString` |
-| Subversion or Mercurial → Status | `onreadoutput`, `isBusy`, interactive buttons |
-| Markdown → Preview | `file://` resources, links, find, printing |
-| PHP → Run | `TextMate.log()` |
-| Any output with `txmt://` links | opening files at a line |
-| Stop a long-running command (⌘.) | stop sheet, process killed |
+Not covered: swipe back/forward, which is WebKit’s own (`allowsBackForwardNavigationGestures`).
 
 ## Open Decisions
 
