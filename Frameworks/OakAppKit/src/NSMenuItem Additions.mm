@@ -52,11 +52,6 @@
 {
 	return NSMakeRect(0, 0, _desiredSize.width, _desiredSize.height);
 }
-
-- (NSRect)boundingRectWithSize:(NSSize)aSize options:(NSStringDrawingOptions)options // Not called after MAC_OS_X_VERSION_10_14
-{
-	return [self boundingRectWithSize:aSize options:options context:nil];
-}
 @end
 
 static char const* kOakMenuItemKeyEquivalent = "OakMenuItemKeyEquivalent";
@@ -121,9 +116,7 @@ static char const* kOakMenuItemTabTrigger    = "OakMenuItemTabTrigger";
 		NSFontAttributeName:           menuFont,
 	}]];
 
-	NSColor* shortcutTextColor = NSColor.textColor;
-	if(@available(macos 11.0, *))
-		shortcutTextColor = NSColor.tertiaryLabelColor;
+	NSColor* shortcutTextColor = NSColor.tertiaryLabelColor;
 
 	[attributedString appendAttributedString:[[NSAttributedString alloc] initWithString:rightString attributes:@{
 		NSParagraphStyleAttributeName:  rightPStyle,

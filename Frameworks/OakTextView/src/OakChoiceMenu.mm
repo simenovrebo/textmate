@@ -33,8 +33,7 @@ enum action_t { kActionNop, kActionTab, kActionReturn, kActionCancel, kActionMov
 
 		_tableView = [[NSTableView alloc] initWithFrame:NSZeroRect];
 		[_tableView addTableColumn:[[NSTableColumn alloc] initWithIdentifier:@"mainColumn"]];
-		if(@available(macos 11.0, *))
-			_tableView.style = NSTableViewStylePlain;
+		_tableView.style                   = NSTableViewStylePlain;
 		_tableView.headerView              = nil;
 		_tableView.focusRingType           = NSFocusRingTypeNone;
 		_tableView.autoresizingMask        = NSViewWidthSizable|NSViewHeightSizable;
@@ -56,9 +55,7 @@ enum action_t { kActionNop, kActionTab, kActionReturn, kActionCancel, kActionMov
 		NSVisualEffectView* effectView = [[NSVisualEffectView alloc] initWithFrame:NSZeroRect];
 		effectView.autoresizingMask = NSViewWidthSizable|NSViewHeightSizable;
 		effectView.material         = NSVisualEffectMaterialMenu;
-
-		if(@available(macos 10.14, *))
-			effectView.blendingMode = NSVisualEffectBlendingModeBehindWindow; // MAC_OS_X_VERSION_10_14
+		effectView.blendingMode     = NSVisualEffectBlendingModeBehindWindow;
 
 		[effectView addSubview:scrollView positioned:NSWindowBelow relativeTo:nil];
 

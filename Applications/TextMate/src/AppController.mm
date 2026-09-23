@@ -587,8 +587,7 @@ BOOL HasDocumentWindow (NSArray* windows)
 {
 	NSWindow.allowsAutomaticWindowTabbing = NO;
 
-	if([NSApp respondsToSelector:@selector(setAutomaticCustomizeTouchBarMenuItemEnabled)]) // MAC_OS_X_VERSION_10_12_1
-		NSApp.automaticCustomizeTouchBarMenuItemEnabled = YES;
+	NSApp.automaticCustomizeTouchBarMenuItemEnabled = YES;
 
 	if(!HasDocumentWindow([NSApp orderedWindows]))
 	{
