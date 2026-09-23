@@ -84,8 +84,8 @@ else
 			echo
 			echo 'config release {'
 			echo '	arch "arm64" "x86_64" {'
-			echo '		add FLAGS    "-target macos-${arch}"'
-			echo '		add LN_FLAGS "-target macos-${arch}"'
+			echo '		add FLAGS    "-arch ${arch}"'
+			echo '		add LN_FLAGS "-arch ${arch}"'
 			echo '	}'
 			echo '}'
 		fi

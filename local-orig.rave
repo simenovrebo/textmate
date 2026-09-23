@@ -17,8 +17,8 @@ config debug {
 
 config release {
 	arch "arm64" "x86_64" {
-		add FLAGS    "-target macos-${arch}"
-		add LN_FLAGS "-target macos-${arch}"
+		add FLAGS    "-arch ${arch}"
+		add LN_FLAGS "-arch ${arch}"
 		add LN_FLAGS "-L${HOME}/.nix-profile/sdk/${arch}/lib"
 	}
 }
