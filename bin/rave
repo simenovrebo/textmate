@@ -5,6 +5,10 @@ require 'fileutils'
 require 'json'
 require 'set'
 
+# Rave files and target names contain non-ASCII characters, so do not depend on the user’s locale
+Encoding.default_external = Encoding::UTF_8
+Encoding.default_internal = Encoding::UTF_8
+
 VARIABLE_MATCH = /\$(?:\{(.+?)\}|(\w+))/
 
 class Parser
@@ -1513,6 +1517,7 @@ if __FILE__ == $PROGRAM_NAME
     end
   end
 
+  FileUtils.mkdir_p(File.dirname(outfile)) unless outfile == '-'
   open(outfile == '-' ? '/dev/stdout' : outfile, 'w') do |io|
     io << "builddir = #{builddir}\n"
     io << "\n"
@@ -1562,7 +1567,7 @@ if __FILE__ == $PROGRAM_NAME
   if new_outputs && old_outputs
     lost_outputs = old_outputs - new_outputs
     lost_outputs.each do |path|
-      if File.exists?(path)
+      if File.exist?(path)
         STDERR << "Remove old target ‘#{path}’…\n"
         # FIXME Does not seem to work with symbolic links (Proxy.png → Settings.png)
         File.unlink(path)
