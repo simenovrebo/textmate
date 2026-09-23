@@ -181,7 +181,7 @@ private:
 
 - (void)drawRect:(NSRect)aRect
 {
-	layout->draw((CGContextRef)[[NSGraphicsContext currentContext] graphicsPort], aRect, [self isFlipped], _selection);
+	layout->draw(NSGraphicsContext.currentContext.CGContext, aRect, [self isFlipped], _selection);
 }
 
 - (ng::ranges_t const&)replaceSelection:(ng::ranges_t const&)someRanges withString:(std::string const&)aString

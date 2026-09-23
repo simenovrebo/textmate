@@ -163,7 +163,7 @@ OSStatus TextMateQuickLookPlugIn_GenerateThumbnailForURL (void* instance, QLThum
 	CGContextRef bitmapContext = QLThumbnailRequestCreateContext(request, maxSize, true, NULL);
 	if(bitmapContext)
 	{
-		NSGraphicsContext* context = [NSGraphicsContext graphicsContextWithGraphicsPort:bitmapContext flipped:YES];
+		NSGraphicsContext* context = [NSGraphicsContext graphicsContextWithCGContext:bitmapContext flipped:YES];
 		if(context)
 		{
 			[NSGraphicsContext saveGraphicsState];

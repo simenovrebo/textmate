@@ -56,6 +56,7 @@
 @property (nonatomic) NSMutableDictionary* bundleItemProperties;
 - (bundles::item_ptr const&)bundleItem;
 - (void)setBundleItem:(bundles::item_ptr const&)aBundleItem;
+- (BOOL)commitEditing;
 @end
 
 namespace

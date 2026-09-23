@@ -140,6 +140,7 @@ static NSButton* OakCreateHistoryButton (NSString* toolTip)
 
 - (void)didFind:(NSUInteger)aNumber occurrencesOf:(NSString*)aFindString atPosition:(text::pos_t const&)aPosition wrapped:(BOOL)didWrap;
 - (void)didReplace:(NSUInteger)aNumber occurrencesOf:(NSString*)aFindString with:(NSString*)aReplacementString;
+- (BOOL)commitEditing;
 @end
 
 @implementation Find
