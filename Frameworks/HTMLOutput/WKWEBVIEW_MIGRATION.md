@@ -1,6 +1,6 @@
 # Migrating HTML Output from WebView to WKWebView
 
-Status: phases 1–3 done (prototypes, scheme handlers, JavaScript bridge). Not yet used by the view.
+Status: phases 1–6 done. HTML output uses `WKWebView`; the legacy `WebView` code has been removed. Remaining: HTML tooltips in the Dialog2 plug-in (phase 7).
 
 The HTML output view (`OakHTMLOutputView`, used for bundle commands with HTML output) is built on the legacy `WebView`, deprecated since macOS 10.14 and responsible for 73 of the remaining deprecation warnings. This document describes what has to change, what bundles depend on, the risks, and the order of work.
 
@@ -139,20 +139,29 @@ Each phase is committed and pushed separately and leaves TextMate working.
    - Compatible details kept: `handler.call(handler, command)`, `outputString` holds only the last chunk when `onreadoutput` is set, setting `onreadoutput` calls it with the current output, the 15 second warning for synchronous commands.
    - `cancel()` escalates from SIGINT to SIGTERM and SIGKILL (see below).
    - Tests: the bridge in a `WKWebView` with a command output page, including untrusted pages and the disabled state.
-4. **Browser view.** Replace the `WebView` in `HOBrowserView` and `HOWebViewDelegateHelper`: navigation policy (`txmt://`, external links, protocol-relative URLs), UI delegate (alerts, file upload, new windows, `window.close()`), status text, console logging, progress, back/forward. Update the three `webView` uses in `OakCommand.mm`.
-5. **Output view features.** Auto scroll, scroll restore for atomic updates, find, copy selection to find/replace pasteboard, View Source, printing, stop/reload with the “Stop command?” sheet.
-6. **Remove the legacy code** (`OakFileHandleURLProtocol`, `HTMLTMFileDummyProtocol`, `WebView Additions.mm`, WebKit-legacy imports), and update the documentation of the JavaScript API.
+4. **Browser view** — done. Phases 4–6 had to land together: the output view features are part of the view, and the legacy code no longer compiled against the new view.
+   - `src/browser/HOBrowserView`: `WKWebView` with the scheme handlers, navigation delegate (`txmt://` and other schemes opened with `openExternalURL:`, which adds the project for `txmt://`; protocol-relative URLs such as `x-txmt-filehandle://cdn.example.com/…` are loaded over https, including in frames, so a web page is never shown as trusted command output), UI delegate (alert, confirm, prompt, file upload, new windows, `window.close()`), load error page, progress, back/forward (buttons and swipe via `allowsBackForwardNavigationGestures`). `HOWebViewDelegateHelper` was merged into it.
+   - `src/browser/HOBrowserViewJS.h`: injected script for the link under the mouse (status bar), console messages and errors (logged), and the `file://` → `tm-file://` setters for `src`/`href`, `setAttribute()`, and `window.open()` (command output and local files only).
+   - `OakHTMLOutputView`: `loadOutputFromFileHandle:processIdentifier:name:command:environment:autoScrolls:` replaces `loadRequest:environment:autoScrolls:` and the request properties; `close` replaces calling `webViewClose:` on the UI delegate; `needsNewWebView` is gone (the WebKit bug does not apply to `WKWebView`).
+   - `HOSchemeHandler isTrustedURL:` also checks the host, so a protocol-relative URL using a trusted scheme is not trusted (the bridge and the scheme handlers use it).
+   - The `TextMate` bridge sends command events to the web view that sent the message, as windows opened by the page share the configuration.
+5. **Output view features** — done: auto scroll (`kHOAutoScrollJavaScript`, keeps the page at the bottom unless the user scrolls up), scroll position kept by `setContent:` (which now loads the HTML as command output, so `file://` URLs and the `TextMate` object work as for streamed output), find (`WKFindConfiguration`), copy selection to the find/replace pasteboard, View Source (the original output, the file for `tm-file://`, otherwise the DOM), printing, and the “Stop command?” sheet. The last 10 outputs of each view are kept, so going back to them works.
+6. **Remove the legacy code** — done: `OakFileHandleURLProtocol`, `HTMLTMFileDummyProtocol`, `HOJSBridge`, `HOAutoScroll`, `WebView Additions.mm`, and `error_not_found.html` are gone, and with them the deprecation warnings in HTMLOutput and OakCommand. The documentation of the JavaScript API (in the TextMate manual) needs no change, as the API is compatible.
 7. **HTML tooltips** in the Dialog2 plug-in. Requires a fork of textmate/dialog; independent of phases 1–6.
 
 ## Found Along the Way
+
+- The `file://` rewriter also rewrote query parameters, e.g. `txmt://open?url=file://…` in every “open in TextMate” link. A `file://` following `=` after a `?` in the same attribute value or string is now left alone.
 
 - `io::spawn` sets `POSIX_SPAWN_SETSIGDEF` without a signal set (`posix_spawnattr_setsigdefault`), so it resets no signals and children inherit ignored signals (e.g. SIGINT when TextMate was started with it ignored). The new bridge does not rely on SIGINT alone, but `io::spawn` itself should be fixed separately as it affects all commands.
 
 ## Testing
 
-Automated (via `ninja HTMLOutput/test`): scheme handler streaming and stop, `tm-file` resolution (files, directories with `index.html`, missing files), and the JavaScript API test page.
+Automated (via `ninja HTMLOutput/test`, 36 tests): scheme handler streaming and stop, `tm-file` resolution (files, directories with `index.html`, missing files), the JavaScript API, and the output view: streamed output with title and `TextMate` object, stop (process group killed, completion handler called when the command terminates), `setContent:` (rewriting, scroll position), status text, `txmt://` links with the project, and protocol-relative links.
 
-Manual, with real bundles, comparing old and new builds side by side:
+Checked with real bundle output (streamed into the view off-screen, with snapshots): Ruby → Run (themes, `webpreview.js`, `txmt://` backtrace links, `javascript:` links calling `TextMate.system`) and Markdown → Preview (`<base href="file://…">`, relative images in a folder with a space, relative link to a missing file).
+
+Still to check in the running app (interaction the off-screen checks cannot cover: ⌘., escape, find panel, printing, swipe):
 
 | Bundle / command | Exercises |
 |---|---|
