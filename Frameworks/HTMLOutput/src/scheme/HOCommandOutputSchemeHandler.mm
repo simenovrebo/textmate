@@ -55,6 +55,16 @@ static NSMutableDictionary<NSURL*, HOCommandOutput*>* Outputs ()
 	return url;
 }
 
++ (NSURL*)URLForOutput:(NSData*)data name:(NSString*)name
+{
+	NSURL* url = [self URLForOutputFromFileHandle:nil processIdentifier:0 name:name];
+	HOCommandOutput* output = Outputs()[url];
+	[output->_data setData:data];
+	output->_started  = YES;
+	output->_complete = YES;
+	return url;
+}
+
 + (NSData*)outputForURL:(NSURL*)url
 {
 	ASSERT(NSThread.isMainThread);

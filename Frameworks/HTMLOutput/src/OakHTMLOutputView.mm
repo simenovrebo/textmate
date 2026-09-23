@@ -1,109 +1,171 @@
 #import "OakHTMLOutputView.h"
 #import "browser/HOStatusBar.h"
-#import "helpers/HOAutoScroll.h"
-#import "helpers/HOJSBridge.h"
+#import "browser/HOBrowserViewJS.h"
+#import "bridge/HOScriptBridge.h"
+#import "scheme/HOCommandOutputSchemeHandler.h"
 #import <OakFoundation/OakFoundation.h>
 #import <OakFoundation/NSString Additions.h>
 #import <OakAppKit/NSAlert Additions.h>
 #import <oak/debug.h>
 
-@interface HOStatusBar (BusyAndProgressProperties) <HOJSBridgeDelegate>
+// Command output is kept so that it can be shown again when going back (and for View Source), but only for the
+// most recent pages of each view.
+static NSUInteger const kMaximumRecordedOutputs = 10;
+
+@interface HOStatusBar (BusyAndProgressProperties) <HOScriptBridgeDelegate>
 @end
 
 @interface OakHTMLOutputView ()
 @property (nonatomic, getter = isRunningCommand, readwrite) BOOL runningCommand;
-@property (nonatomic) HOAutoScroll* autoScrollHelper;
-@property (nonatomic) std::map<std::string, std::string> environment;
-@property (nonatomic) NSRect pendingVisibleRect;
 @property (nonatomic, getter = isVisible) BOOL visible;
+@property (nonatomic) NSString* commandName;
+@property (nonatomic) id command; // until it terminates
+@property (nonatomic) id commandTerminationObserver;
+@property (nonatomic) HOScriptBridge* bridge;
+@property (nonatomic) std::map<std::string, std::string> environment;
+@property (nonatomic) NSMutableArray<NSURL*>* outputURLs;
+@property (nonatomic) NSURL* autoScrollURL;
+@property (nonatomic) NSArray* pendingScrollPosition;
 @end
 
 @implementation OakHTMLOutputView
 + (NSSet*)keyPathsForValuesAffectingMainFrameTitle
 {
-	return [NSSet setWithObjects:@"webView.mainFrameTitle", nil];
+	return [NSSet setWithObjects:@"webView.title", @"commandName", nil];
 }
 
 - (instancetype)initWithFrame:(NSRect)aRect
 {
-	if(self = [super initWithFrame:aRect])
+	WKWebViewConfiguration* configuration = [HOBrowserView makeConfiguration];
+	HOScriptBridge* bridge = [HOScriptBridge new];
+	[bridge addToConfiguration:configuration];
+
+	if(self = [super initWithFrame:aRect configuration:configuration])
 	{
-		_reusable = YES;
+		_reusable   = YES;
+		_outputURLs = [NSMutableArray array];
+
+		_bridge = bridge;
+		_bridge.webView  = self.webView;
+		_bridge.delegate = self.statusBar;
 	}
 	return self;
 }
 
-- (void)loadRequest:(NSURLRequest*)aRequest environment:(std::map<std::string, std::string> const&)anEnvironment autoScrolls:(BOOL)flag
+- (void)dealloc
 {
-	if(flag)
-	{
-		self.autoScrollHelper = [HOAutoScroll new];
-		self.autoScrollHelper.webFrame = self.webView.mainFrame.frameView;
-	}
-
-	self.environment = anEnvironment;
-	self.commandIdentifier = [NSURLProtocol propertyForKey:@"commandIdentifier" inRequest:aRequest];
-	self.runningCommand = self.commandIdentifier != nil;
-
-	[self willChangeValueForKey:@"mainFrameTitle"];
-	[self.webView.mainFrame loadRequest:aRequest];
-	[self didChangeValueForKey:@"mainFrameTitle"];
+	[_bridge cancelAllCommands];
+	if(_commandTerminationObserver)
+		[NSNotificationCenter.defaultCenter removeObserver:_commandTerminationObserver];
+	for(NSURL* url in _outputURLs)
+		[HOCommandOutputSchemeHandler removeOutputForURL:url];
 }
 
-- (void)stopLoadingWithUserInteraction:(BOOL)askUserFlag completionHandler:(void(^)(BOOL didStop))handler
+- (void)setDisableJavaScriptAPI:(BOOL)flag
 {
-	NSURLRequest* request = self.webView.mainFrame.dataSource.initialRequest;
-	if(id command = [NSURLProtocol propertyForKey:@"command" inRequest:request])
-	{
-		NSAlert* alert = askUserFlag ? [NSAlert tmAlertWithMessageText:[NSString stringWithFormat:@"Stop “%@”?", [NSURLProtocol propertyForKey:@"processName" inRequest:request]] informativeText:@"The job that the task is performing will not be completed." buttons:@"Stop", @"Cancel", nil] : nil;
+	_disableJavaScriptAPI = flag;
+	_bridge.enabled = !flag;
+}
 
-		__weak __block id token = [NSNotificationCenter.defaultCenter addObserverForName:@"OakCommandDidTerminateNotification" object:command queue:nil usingBlock:^(NSNotification* notification){
-			if(alert)
-				[self.window endSheet:alert.window returnCode:NSAlertFirstButtonReturn];
-			handler(YES);
-			[NSNotificationCenter.defaultCenter removeObserver:token];
-		}];
+- (void)loadOutputFromFileHandle:(NSFileHandle*)fileHandle processIdentifier:(pid_t)processIdentifier name:(NSString*)name command:(id)command environment:(std::map<std::string, std::string> const&)anEnvironment autoScrolls:(BOOL)flag
+{
+	NSURL* url = [HOCommandOutputSchemeHandler URLForOutputFromFileHandle:fileHandle processIdentifier:processIdentifier name:name];
 
-		if(alert)
+	self.environment        = anEnvironment;
+	self.bridge.environment = anEnvironment;
+	self.commandName        = name;
+	self.autoScrollURL      = flag ? url : nil;
+	self.runningCommand     = YES;
+	self.command            = command;
+
+	if(_commandTerminationObserver)
+		[NSNotificationCenter.defaultCenter removeObserver:_commandTerminationObserver];
+
+	__weak OakHTMLOutputView* weakSelf = self;
+	_commandTerminationObserver = command ? [NSNotificationCenter.defaultCenter addObserverForName:@"OakCommandDidTerminateNotification" object:command queue:nil usingBlock:^(NSNotification* notification){
+		if(OakHTMLOutputView* strongSelf = weakSelf)
 		{
-			[alert beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse returnCode){
-				if(returnCode == NSAlertFirstButtonReturn) /* "Stop" */
-				{
-					[self.webView.mainFrame stopLoading];
-				}
-				else
-				{
-					handler(NO);
-					[NSNotificationCenter.defaultCenter removeObserver:token];
-				}
-			}];
+			[NSNotificationCenter.defaultCenter removeObserver:strongSelf.commandTerminationObserver];
+			strongSelf.commandTerminationObserver = nil;
+			strongSelf.command = nil;
 		}
-		else
-		{
-			[self.webView.mainFrame stopLoading];
-		}
-	}
-	else
-	{
-		handler(YES);
-	}
+	}] : nil;
+
+	[self loadOutputURL:url];
 }
 
 - (void)setContent:(NSString*)someHTML
 {
-	self.pendingVisibleRect = [[[[self.webView mainFrame] frameView] documentView] visibleRect];
-	[[self.webView mainFrame] loadHTMLString:someHTML baseURL:[NSURL fileURLWithPath:NSHomeDirectory()]];
+	NSURL* url = [HOCommandOutputSchemeHandler URLForOutput:[someHTML dataUsingEncoding:NSUTF8StringEncoding] name:self.commandName ?: @"Output"];
+
+	// Keep the scroll position when the page is replaced
+	[self.webView evaluateJavaScript:@"[window.scrollX, window.scrollY]" inFrame:nil inContentWorld:WKContentWorld.defaultClientWorld completionHandler:^(id result, NSError* error){
+		self.pendingScrollPosition = [result isKindOfClass:[NSArray class]] && [result count] == 2 ? result : nil;
+		[self loadOutputURL:url];
+	}];
+}
+
+- (void)loadOutputURL:(NSURL*)url
+{
+	[_outputURLs addObject:url];
+	while(_outputURLs.count > kMaximumRecordedOutputs)
+	{
+		[HOCommandOutputSchemeHandler removeOutputForURL:_outputURLs.firstObject];
+		[_outputURLs removeObjectAtIndex:0];
+	}
+
+	[self.webView loadRequest:[NSURLRequest requestWithURL:url]];
+}
+
+- (void)stopLoadingWithUserInteraction:(BOOL)askUserFlag completionHandler:(void(^)(BOOL didStop))handler
+{
+	id command = self.command;
+	if(!self.isRunningCommand || !command)
+		return handler(YES);
+
+	NSAlert* alert = askUserFlag ? [NSAlert tmAlertWithMessageText:[NSString stringWithFormat:@"Stop “%@”?", self.commandName] informativeText:@"The job that the task is performing will not be completed." buttons:@"Stop", @"Cancel", nil] : nil;
+
+	__weak __block id token = [NSNotificationCenter.defaultCenter addObserverForName:@"OakCommandDidTerminateNotification" object:command queue:nil usingBlock:^(NSNotification* notification){
+		if(alert)
+			[self.window endSheet:alert.window returnCode:NSAlertFirstButtonReturn];
+		handler(YES);
+		[NSNotificationCenter.defaultCenter removeObserver:token];
+	}];
+
+	if(alert)
+	{
+		[alert beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse returnCode){
+			if(returnCode == NSAlertFirstButtonReturn) /* "Stop" */
+			{
+				[self.webView stopLoading];
+			}
+			else
+			{
+				handler(NO);
+				[NSNotificationCenter.defaultCenter removeObserver:token];
+			}
+		}];
+	}
+	else
+	{
+		[self.webView stopLoading];
+	}
 }
 
 - (NSString*)mainFrameTitle
 {
-	if(OakIsEmptyString(self.webView.mainFrameTitle))
+	return OakNotEmptyString(self.webView.title) ? self.webView.title : (self.commandName ?: @"");
+}
+
+- (void)openExternalURL:(NSURL*)url
+{
+	if([url.scheme isEqualToString:@"txmt"])
 	{
-		WebFrame* frame = self.webView.mainFrame;
-		if(NSURLRequest* request = (frame.provisionalDataSource ?: frame.dataSource).initialRequest)
-			return [NSURLProtocol propertyForKey:@"processName" inRequest:request] ?: @"";
+		auto projectUUID = _environment.find("TM_PROJECT_UUID");
+		if(projectUUID != _environment.end())
+			url = [NSURL URLWithString:[[url absoluteString] stringByAppendingFormat:@"&project=%@", [NSString stringWithCxxString:projectUUID->second]]];
 	}
-	return self.webView.mainFrameTitle;
+	[super openExternalURL:url];
 }
 
 - (void)viewDidMoveToWindow
@@ -119,122 +181,50 @@
 	self.visible = NO;
 }
 
-// =======================
-// = Frame Load Delegate =
-// =======================
+// ============================
+// = Navigation Notifications =
+// ============================
 
-- (void)webView:(WebView*)sender didStartProvisionalLoadForFrame:(WebFrame*)frame
+- (void)webView:(WKWebView*)webView didStartProvisionalNavigation:(WKNavigation*)navigation
 {
-	self.statusBar.busy = YES;
-	[self setUpdatesProgress:!self.isRunningCommand];
+	[super webView:webView didStartProvisionalNavigation:navigation];
+	self.showsProgress = !self.isRunningCommand;
 }
 
-- (void)webView:(WebView*)sender didClearWindowObject:(WebScriptObject*)windowScriptObject forFrame:(WebFrame*)frame
+- (void)webView:(WKWebView*)webView didCommitNavigation:(WKNavigation*)navigation
 {
-	if(self.disableJavaScriptAPI)
-		return;
+	[super webView:webView didCommitNavigation:navigation];
 
-	NSString* scheme = [[[[[self.webView mainFrame] dataSource] request] URL] scheme];
-	if(self.isRunningCommand || [@[ @"tm-file", @"file" ] containsObject:scheme])
-	{
-		HOJSBridge* bridge = [HOJSBridge new];
-		[bridge setDelegate:self.statusBar];
-		[bridge setEnvironment:_environment];
-		[windowScriptObject setValue:bridge forKey:@"TextMate"];
-	}
+	// Commands started by the previous page’s TextMate.system() are no longer needed
+	[self.bridge cancelAllCommands];
+
+	if(self.autoScrollURL && [webView.URL isEqual:self.autoScrollURL])
+		[webView evaluateJavaScript:@(kHOAutoScrollJavaScript) inFrame:nil inContentWorld:WKContentWorld.defaultClientWorld completionHandler:nil];
 }
 
-- (void)webView:(WebView*)sender didFinishLoadForFrame:(WebFrame*)frame
+- (void)webView:(WKWebView*)webView didFinishNavigation:(WKNavigation*)navigation
 {
 	self.runningCommand = NO;
-	self.autoScrollHelper = nil;
+	self.autoScrollURL  = nil;
 
-	// Sending goBack:/goForward: to a WebView does not call this WebFrameLoadDelegate method
-	if(frame == [sender mainFrame])
-	{
-		[self webView:sender didClearWindowObject:[frame windowObject] forFrame:frame];
+	if(NSArray* position = self.pendingScrollPosition)
+		[webView evaluateJavaScript:[NSString stringWithFormat:@"window.scrollTo(%f, %f)", [position[0] doubleValue], [position[1] doubleValue]] inFrame:nil inContentWorld:WKContentWorld.defaultClientWorld completionHandler:nil];
+	self.pendingScrollPosition = nil;
 
-		// This happens when we redirect to a PDF file
-		if(self.window.firstResponder == self.window)
-		{
-			NSRect rect = [sender frame];
-			for(NSView* view = [sender hitTest:NSMakePoint(NSMidX(rect), NSMidY(rect))]; view; view = [view superview])
-			{
-				if([view acceptsFirstResponder])
-				{
-					[self.window makeFirstResponder:view];
-					break;
-				}
-			}
-		}
-	}
-
-	if(!NSIsEmptyRect(self.pendingVisibleRect))
-		[[[[self.webView mainFrame] frameView] documentView] scrollRectToVisible:self.pendingVisibleRect];
-	self.pendingVisibleRect = NSZeroRect;
-
-	[super webView:sender didFinishLoadForFrame:frame];
+	[super webView:webView didFinishNavigation:navigation];
 }
 
-- (void)webView:(WebView*)sender didFailProvisionalLoadWithError:(NSError*)error forFrame:(WebFrame*)frame
+- (void)webView:(WKWebView*)webView didFailProvisionalNavigation:(WKNavigation*)navigation withError:(NSError*)error
 {
 	self.runningCommand = NO;
-	self.autoScrollHelper = nil;
-	[super webView:sender didFailProvisionalLoadWithError:error forFrame:frame];
+	self.autoScrollURL  = nil;
+	[super webView:webView didFailProvisionalNavigation:navigation withError:error];
 }
 
-- (void)webView:(WebView*)sender didFailLoadWithError:(NSError*)error forFrame:(WebFrame*)frame
+- (void)webView:(WKWebView*)webView didFailNavigation:(WKNavigation*)navigation withError:(NSError*)error
 {
 	self.runningCommand = NO;
-	self.autoScrollHelper = nil;
-	[super webView:sender didFailLoadWithError:error forFrame:frame];
-}
-
-// =========================================
-// = WebPolicyDelegate : Intercept txmt:// =
-// =========================================
-
-- (void)webView:(WebView*)sender decidePolicyForNavigationAction:(NSDictionary*)actionInformation request:(NSURLRequest*)request frame:(WebFrame*)frame decisionListener:(id <WebPolicyDecisionListener>)listener
-{
-	if([NSURLConnection canHandleRequest:request])
-	{
-		[listener use];
-	}
-	else
-	{
-		[listener ignore];
-		NSURL* url = request.URL;
-		if([[url scheme] isEqualToString:@"txmt"])
-		{
-			auto projectUUID = _environment.find("TM_PROJECT_UUID");
-			if(projectUUID != _environment.end())
-				url = [NSURL URLWithString:[[url absoluteString] stringByAppendingFormat:@"&project=%@", [NSString stringWithCxxString:projectUUID->second]]];
-			[NSApp sendAction:@selector(handleTxMtURL:) to:nil from:url];
-		}
-		else
-		{
-			[NSWorkspace.sharedWorkspace openURL:url];
-		}
-	}
-}
-
-// ====================
-// = Printing Support =
-// ====================
-
-- (IBAction)printDocument:(id)sender
-{
-	NSPrintOperation* printer = [NSPrintOperation printOperationWithView:self.webView.mainFrame.frameView.documentView];
-	[[printer printPanel] setOptions:[[printer printPanel] options] | NSPrintPanelShowsPaperSize | NSPrintPanelShowsOrientation];
-
-	NSPrintInfo* info = [printer printInfo];
-
-	NSRect display = NSIntersectionRect(info.imageablePageBounds, (NSRect){ NSZeroPoint, info.paperSize });
-	info.leftMargin   = NSMinX(display);
-	info.rightMargin  = info.paperSize.width - NSMaxX(display);
-	info.topMargin    = info.paperSize.height - NSMaxY(display);
-	info.bottomMargin = NSMinY(display);
-
-	[printer runOperationModalForWindow:self.window delegate:nil didRunSelector:NULL contextInfo:nil];
+	self.autoScrollURL  = nil;
+	[super webView:webView didFailNavigation:navigation withError:error];
 }
 @end

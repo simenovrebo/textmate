@@ -1233,7 +1233,7 @@ static NSArray* const kObservedKeyPaths = @[ @"arrayController.arrangedObjects.p
 			[htmlOutputViews addObject:[(HTMLOutputWindowController*)window.delegate htmlOutputView]];
 	}
 
-	NSArray* allHTMLViews = [htmlOutputViews filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"needsNewWebView == NO AND isReusable == YES AND commandIdentifier == %@", identifier]];
+	NSArray* allHTMLViews = [htmlOutputViews filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"isReusable == YES AND commandIdentifier == %@", identifier]];
 	NSArray* nonBusyViews = [allHTMLViews filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"isRunningCommand == NO"]];
 
 	if(OakHTMLOutputView* view = [nonBusyViews firstObject])
@@ -1911,7 +1911,7 @@ static NSArray* const kObservedKeyPaths = @[ @"arrayController.arrangedObjects.p
 		}
 		else
 		{
-			if(!self.htmlOutputView || self.htmlOutputView.needsNewWebView)
+			if(!self.htmlOutputView)
 				self.htmlOutputView = [[OakHTMLOutputView alloc] initWithFrame:NSZeroRect];
 			self.layoutView.htmlOutputView = self.htmlOutputView;
 		}

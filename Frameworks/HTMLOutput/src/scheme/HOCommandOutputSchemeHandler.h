@@ -17,6 +17,9 @@ extern NSString* const kHOCommandOutputURLScheme; // x-txmt-filehandle
 // processIdentifier is the process group killed when the load is stopped (0 for none).
 + (NSURL*)URLForOutputFromFileHandle:(NSFileHandle*)fileHandle processIdentifier:(pid_t)processIdentifier name:(NSString*)name;
 
+// Register complete output, e.g. when a command’s output replaces the page in one go
++ (NSURL*)URLForOutput:(NSData*)data name:(NSString*)name;
+
 // Output received so far (as written by the command, i.e. without URL rewriting), or nil if not registered
 + (NSData*)outputForURL:(NSURL*)url;
 + (BOOL)isOutputCompleteForURL:(NSURL*)url;
