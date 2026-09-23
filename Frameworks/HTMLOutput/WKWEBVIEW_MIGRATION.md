@@ -1,6 +1,6 @@
 # Migrating HTML Output from WebView to WKWebView
 
-Status: prototypes done (phase 1), all three risks resolved with public API. Implementation not started.
+Status: phases 1–2 done (prototypes, scheme handlers). The handlers are not yet used by the view.
 
 The HTML output view (`OakHTMLOutputView`, used for bundle commands with HTML output) is built on the legacy `WebView`, deprecated since macOS 10.14 and responsible for 73 of the remaining deprecation warnings. This document describes what has to change, what bundles depend on, the risks, and the order of work.
 
@@ -127,7 +127,12 @@ The `TextMate` object can run shell commands, so it must only be available to co
 Each phase is committed and pushed separately and leaves TextMate working.
 
 1. **Prototypes** — done, see Prototype Results.
-2. **Scheme handlers.** `WKURLSchemeHandler` for `x-txmt-filehandle` (streaming output through the `file://` rewriter, stop kills the process, no task access after stop) and `tm-file`, independent of the view. Unit tests: a fake command writing to a pipe, served to a hidden `WKWebView`, checking the rendered text.
+2. **Scheme handlers** — done:
+   - `src/helpers/file_url_rewriter.h`: the streaming `file://` → `tm-file://` rewriter.
+   - `src/scheme/HOSchemeHandler`: base class that never uses a task after it was stopped, loads protocol-relative URLs over https, and only trusts requests from command output and local files.
+   - `src/scheme/HOFileSchemeHandler`: `tm-file://` (files, directories with `index.html`, not-found page, HTML rewriting). Refuses requests from other pages, so a web page cannot read local files through it.
+   - `src/scheme/HOCommandOutputSchemeHandler`: streams command output (`URLForOutputFromFileHandle:processIdentifier:name:` replaces the request properties), kills the process group when stopped, and records the output so it can be reloaded and shown by View Source (previously a reload showed no output).
+   - Tests (`ninja HTMLOutput/test`): unit tests with a fake `WKURLSchemeTask` (which, like WebKit, flags use after stop) and an end-to-end test streaming output into a `WKWebView`.
 3. **JavaScript bridge.** User script with the `TextMate` object (including the `src`/`href` rewriting) and message handlers; asynchronous `system()`, synchronous `system()` via XHR, `outputString`, `onreadoutput`/`onreaderror`, `write`/`close`/`cancel`, `isBusy`, `progress`, `log`, `open`. Tests: an HTML test page exercising every call, run in a hidden `WKWebView`, reporting results back through the bridge.
 4. **Browser view.** Replace the `WebView` in `HOBrowserView` and `HOWebViewDelegateHelper`: navigation policy (`txmt://`, external links, protocol-relative URLs), UI delegate (alerts, file upload, new windows, `window.close()`), status text, console logging, progress, back/forward. Update the three `webView` uses in `OakCommand.mm`.
 5. **Output view features.** Auto scroll, scroll restore for atomic updates, find, copy selection to find/replace pasteboard, View Source, printing, stop/reload with the “Stop command?” sheet.
