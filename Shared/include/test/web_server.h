@@ -8,6 +8,7 @@
 #include <sys/uio.h>
 #include <unistd.h>
 #include <string>
+#include <algorithm>
 #include <map>
 #include <io/path.h>
 
@@ -164,8 +165,13 @@ static void send_file_head (int sock, std::string const& path)
 			headers += str;
 		}
 
+		// Extended attributes become headers, except those added by the system (like the binary com.apple.provenance)
 		for(auto const& pair : path::attributes(path))
-			headers += pair.first + ": " + pair.second + "\r\n";
+		{
+			bool printable = std::all_of(pair.second.begin(), pair.second.end(), [](char ch){ return ch >= 0x20 && ch != 0x7F; });
+			if(!pair.first.starts_with("com.apple.") && printable)
+				headers += pair.first + ": " + pair.second + "\r\n";
+		}
 
 		close(fd);
 		send_head(sock, 200, "OK", headers.c_str());

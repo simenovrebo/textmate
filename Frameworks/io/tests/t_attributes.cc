@@ -23,7 +23,10 @@ void test_attributes ()
 	OAK_ASSERT_EQ(path::get_attr(file, "buz"), "jazz");
 	OAK_ASSERT_EQ(path::get_attr(file, "new"), "value");
 
-	OAK_ASSERT_EQ(path::attributes(file).size(), 2);
+	// Ignore attributes added by the system, like com.apple.provenance
+	std::map<std::string, std::string> attributes = path::attributes(file);
+	std::erase_if(attributes, [](auto const& pair){ return pair.first.starts_with("com.apple."); });
+	OAK_ASSERT_EQ(attributes.size(), 2);
 
 	OAK_ASSERT_EQ(path::content(file), "«some content»");
 }
