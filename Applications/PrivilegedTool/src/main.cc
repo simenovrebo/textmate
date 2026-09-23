@@ -55,11 +55,19 @@ static int setup_socket ()
 	int fd = socket(AF_UNIX, SOCK_STREAM, 0);
 	struct sockaddr_un addr = { 0, AF_UNIX, kAuthSocketPath };
 	addr.sun_len = SUN_LEN(&addr);
-	int rc = bind(fd, (sockaddr*)&addr, sizeof(addr));
+	if(fd == -1 || bind(fd, (sockaddr*)&addr, sizeof(addr)) == -1)
+	{
+		perror("setup_socket: bind");
+		return -1;
+	}
+
 	chmod(kAuthSocketPath, S_IRWXU|S_IRWXG|S_IRWXO);
-	assert(rc != -1);
-	rc = listen(fd, SOMAXCONN);
-	assert(rc != -1);
+	if(listen(fd, SOMAXCONN) == -1)
+	{
+		perror("setup_socket: listen");
+		close(fd);
+		return -1;
+	}
 
 	return fd;
 }
@@ -160,6 +168,8 @@ int main (int argc, char const* argv[])
 		return uninstall_tool();
 
 	int fd = server ? setup_socket() : launchd_sockets();
+	if(fd == -1)
+		return EX_OSERR;
 
 	while(running)
 	{

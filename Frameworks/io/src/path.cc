@@ -596,9 +596,12 @@ namespace path
 		if(size <= 0)
 			return NULL_STR;
 
-		char data[size];
-		getxattr(path.c_str(), attr.c_str(), data, size, 0, 0);
-		return std::string(data, data + size);
+		std::string data(size, '\0');
+		ssize_t len = getxattr(path.c_str(), attr.c_str(), data.data(), data.size(), 0, 0);
+		if(len < 0)
+			return NULL_STR;
+		data.resize(len);
+		return data;
 	}
 
 	void set_attr (std::string const& path, std::string const& attr, std::string const& value)
@@ -618,7 +621,8 @@ namespace path
 			ssize_t listSize = flistxattr(fd, nullptr, 0, 0);
 			if(listSize > 0)
 			{
-				char mem[listSize];
+				std::vector<char> buffer(listSize);
+				char* mem = buffer.data();
 				if(flistxattr(fd, mem, listSize, 0) == listSize)
 				{
 					size_t i = 0;
@@ -839,7 +843,6 @@ namespace path
 		if(file != NULL_STR)
 		{
 			str = join(str, std::string(getprogname() ?: "untitled") + "_" + file + ".XXXXXX");
-			str.c_str(); // ensure the buffer is zero terminated, should probably move to a better approach
 
 			if(content != NULL_STR)
 			{

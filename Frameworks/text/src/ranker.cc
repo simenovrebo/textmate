@@ -44,11 +44,23 @@ static double calculate_rank (std::string const& lhs, std::string const& rhs, st
 {
 	size_t const n = lhs.size();
 	size_t const m = rhs.size();
-	size_t matrix[n][m], first[n], last[n];
-	bool capitals[m];
-	bzero(matrix, sizeof(matrix));
-	std::fill_n(&first[0], n, m);
-	std::fill_n(&last[0],  n, 0);
+	// Buffers are reused, as this is called for every candidate when ranking (e.g. file chooser)
+	struct matrix_t
+	{
+		size_t* operator[] (size_t i) { return data.data() + i*columns; }
+		std::vector<size_t> data;
+		size_t columns;
+	};
+
+	thread_local matrix_t matrix;
+	thread_local std::vector<size_t> first, last;
+	thread_local std::vector<bool> capitals;
+
+	matrix.columns = m;
+	matrix.data.assign(n * m, 0);
+	first.assign(n, m);
+	last.assign(n, 0);
+	capitals.assign(m, false);
 
 	bool at_bow = true;
 	for(size_t j = 0; j < m; ++j)
