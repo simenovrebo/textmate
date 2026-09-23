@@ -20,10 +20,10 @@ Before you submit a bug report please read the [writing bug reports](https://git
 
 ## Setup
 
-To build TextMate, you need the following:
+To build TextMate, you need Xcode 26 or later and the following:
 
  * [boost][]            — portable C++ source libraries
- * [Cap’n Proto][capnp] — serialization library
+ * [CMake][cmake]       — used to build the vendored [Cap’n Proto][capnp]
  * [multimarkdown][]    — marked-up plain text compiler
  * [ninja][]            — build system similar to `make`
  * [ragel][]            — state machine compiler
@@ -33,10 +33,10 @@ All this can be installed using either [Homebrew][] or [MacPorts][]:
 
 ```sh
 # Homebrew
-brew install boost capnp google-sparsehash multimarkdown ninja ragel
+brew install boost cmake google-sparsehash multimarkdown ninja ragel
 
 # MacPorts
-sudo port install boost capnproto multimarkdown ninja ragel sparsehash
+sudo port install boost cmake multimarkdown ninja ragel sparsehash
 ```
 
 After installing dependencies, make sure you have a full checkout (including submodules) and then run `./configure` followed by `ninja`, for example:
@@ -47,13 +47,15 @@ cd textmate
 ./configure && ninja TextMate/run
 ```
 
-The `./configure` script simply checks that all dependencies can be found, and then calls `bin/rave` to bootstrap a `build.ninja` file with default config set to `release` and default target set to `TextMate`.
+The `./configure` script checks that all dependencies can be found, builds the vendored libraries, and then calls `bin/rave` to bootstrap a `build.ninja` file with default config set to `release` and default target set to `TextMate`. Use `./configure --universal` to build for both arm64 and x86_64.
+
+See [BUILDING.md](BUILDING.md) for details about the build system, including the syntax of the `*.rave` files.
 
 ## Building from within TextMate
 
 You should install the [Ninja][NinjaBundle] bundle which can be installed via _Preferences_ → _Bundles_.
 
-After this you can press ⌘B to build from within TextMate. In case you haven't already you also need to set up the `PATH` variable either in _Preferences_ → _Variables_ or `~/.tm_properties` so it can find `ninja` and related tools; an example could be `$PATH:/usr/local/bin`.
+After this you can press ⌘B to build from within TextMate. In case you haven't already you also need to set up the `PATH` variable either in _Preferences_ → _Variables_ or `~/.tm_properties` so it can find `ninja` and related tools; an example could be `$PATH:/opt/homebrew/bin` (Homebrew on Apple silicon) or `$PATH:/usr/local/bin` (Homebrew on Intel).
 
 The default target (set in `.tm_properties`) is `TextMate/run`. This will relaunch TextMate but when called from within TextMate, a dialog will appear before the current instance is killed. As there is full session restore, it is safe to relaunch even with unsaved changes.
 
@@ -89,6 +91,7 @@ TextMate is a trademark of Allan Odgaard.
 [multimarkdown]: http://fletcherpenney.net/multimarkdown/
 [ragel]:         http://www.complang.org/ragel/
 [capnp]:         https://github.com/capnproto/capnproto.git
+[cmake]:         https://cmake.org/
 [MacPorts]:      http://www.macports.org/
 [Homebrew]:      http://brew.sh/
 [NinjaBundle]:   https://github.com/textmate/ninja.tmbundle
