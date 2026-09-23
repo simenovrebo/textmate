@@ -47,8 +47,12 @@ ninja TextMate/run           # Build, sign, and (re)launch TextMate
 ninja TextMate/debug/run     # Same, but debug config (address sanitizer, OakDebug)
 ninja mate                   # Build a single executable
 ninja -t targets | grep run  # List runnable targets
+ninja text/test              # Build and run the tests of a framework
+ninja tests                  # Run all tests affected by changes since they last passed
 ninja -t clean               # Remove build output (or delete the build directory)
 ```
+
+Tests are not run as part of building TextMate. A test that has not finished after 120 seconds is killed and counts as failed; set `TEST_TIMEOUT` (in seconds) to change this. Framework tests in `tests/gui_*.mm` are interactive and only run via `ninja <framework>/cxx_test`.
 
 When building from within TextMate (⌘B with the [Ninja bundle][NinjaBundle]) the target is chosen by `TM_NINJA_TARGET` in `.tm_properties`, see README.md.
 
@@ -111,7 +115,8 @@ target "${dirname}" {
 | `copy SOURCE… DEST` | Copy files or directories unmodified. |
 | `define NAME "shell command"` | Add a custom action, built with `ninja <target>/NAME`. Its output is available to other defines as `${NAME}` (see `local-orig.rave`). |
 | `notarize PROFILE` | Add a `NAME/notarize` target, using a keychain profile created with `xcrun notarytool store-credentials PROFILE`. |
-| `tests GLOB…`, `cxx_tests GLOB…` | Test sources. These are parsed but no test targets are currently generated. |
+| `tests GLOB…` | Test sources using the functions `test_*()` and `OAK_ASSERT*` macros (see `bin/gen_test`). Creates the `NAME/test` target. |
+| `cxx_tests GLOB…` | Test sources for [CxxTest][cxxtest], used for interactive GUI tests. Creates the `NAME/cxx_test` target (requires `python3`). |
 
 Comments start with `#` and must be on a line of their own.
 
@@ -131,4 +136,5 @@ set CS_IDENTITY "Developer ID Application: Your Name (TEAMID)"
 
 [ninja]:       https://ninja-build.org/
 [capnp]:       https://capnproto.org/
+[cxxtest]:     https://cxxtest.com/
 [NinjaBundle]: https://github.com/textmate/ninja.tmbundle

@@ -909,33 +909,40 @@ module Target
     target[:build][:objects]
   end
 
+  # Returns object files, linker flags, and linker dependencies for target and all targets it requires
+  def link_inputs(target, targets)
+    required_targets = required_targets(target, targets, include_self: true).map { |archs| archs[target[:arch]] }
+
+    objects = required_targets.flat_map do |target|
+      objects(target, targets)
+    end
+
+    frameworks = required_targets.flat_map { |target| target[:frameworks] }.reject { |e| e.nil? }.sort.uniq
+    libraries  = required_targets.flat_map { |target| target[:libraries]  }.reject { |e| e.nil? }.sort.uniq
+    static, libraries = libraries.partition { |lib| lib =~ /\.a$/ }
+
+    deps = []
+    ln_flags = []
+    required_targets.each do |target|
+      ln_flags += target[:variables]['LN_FLAGS'].split(' ') if target[:variables].include?('LN_FLAGS')
+      deps += target.dig(:inference, 'LN_FLAGS') || []
+    end
+    ln_flags = [ ln_flags.uniq.join(' ') ]
+    deps = deps.uniq.sort
+
+    ln_flags += frameworks.map { |e| "-framework #{e.shellescape}" }
+    ln_flags += libraries.map { |e| "-l#{e.shellescape}" }
+    ln_flags += static
+
+    [ objects, ln_flags, deps ]
+  end
+
   def executable(target, targets)
     unless target[:build][:executable]
       executable, rules = nil, []
 
       if executable = target[:executable]
-        required_targets = required_targets(target, targets, include_self: true).map { |archs| archs[target[:arch]] }
-
-        objects = required_targets.flat_map do |target|
-          objects(target, targets)
-        end
-
-        frameworks = required_targets.flat_map { |target| target[:frameworks] }.reject { |e| e.nil? }.sort.uniq
-        libraries  = required_targets.flat_map { |target| target[:libraries]  }.reject { |e| e.nil? }.sort.uniq
-        static, libraries = libraries.partition { |lib| lib =~ /\.a$/ }
-
-        deps = []
-        ln_flags = []
-        required_targets.each do |target|
-          ln_flags += target[:variables]['LN_FLAGS'].split(' ') if target[:variables].include?('LN_FLAGS')
-          deps += target.dig(:inference, 'LN_FLAGS') || []
-        end
-        ln_flags = [ ln_flags.uniq.join(' ') ]
-        deps = deps.uniq.sort
-
-        ln_flags += frameworks.map { |e| "-framework #{e.shellescape}" }
-        ln_flags += libraries.map { |e| "-l#{e.shellescape}" }
-        ln_flags += static
+        objects, ln_flags, deps = link_inputs(target, targets)
 
         executable = if target[:arch].is_a?(String)
           File.join(target[:builddir], "_Link-#{target[:arch]}", target[:name])
@@ -1219,6 +1226,105 @@ module Target
     target[:build][:runner]
   end
 
+  HOST_ARCH = %x{/usr/bin/uname -m}.chomp
+
+  TEST_KINDS = {
+    tests:     { phony: 'test',     generator: "#{__dir__}/gen_test > $out~ $in && mv $out~ $out",                                        dependencies: [ "#{__dir__}/gen_test" ] },
+    cxx_tests: { phony: 'cxx_test', generator: "python3 #{__dir__}/CxxTest/bin/cxxtestgen --have-std --runner=unix -o $out $in >/dev/null", dependencies: [], include: "#{__dir__}/CxxTest" },
+  }
+
+  # Build a test runner per test kind. ‘<target>/test’ always runs the tests, while
+  # the returned files are only rebuilt (and the tests rerun) when something changed.
+  def tests(archs, targets)
+    target = archs[HOST_ARCH] || archs.values.first
+
+    unless target[:build][:tests]
+      passed, rules = [], []
+
+      TEST_KINDS.each do |kind, info|
+        next unless sources = target[kind]
+        next if sources.empty?
+
+        testdir = File.join(target[:builddir], '_Test', target[:name])
+        ext     = sources.any? { |file| file.end_with?('.mm') } ? 'mm' : 'cc'
+        source  = File.join(testdir, "#{info[:phony]}_#{target[:name]}.#{ext}")
+        runner  = File.join(testdir, "#{info[:phony]}_#{target[:name]}")
+
+        rules << {
+          name:         "Generate#{info[:phony].split('_').map(&:capitalize).join}",
+          in:           sources,
+          out:          source,
+          command:      info[:generator],
+          description:  'Generate ‘${out}’…',
+          dependencies: info[:dependencies],
+        }
+
+        include_dirs = required_targets(target, targets, include_self: true, include_weak: true).map { |archs| include_dir(archs) }.reject { |e| e.nil? }.sort.uniq
+        config = target[:variables].merge(prelude: target[:prelude], inference: target[:inference], include: include_dirs)
+        config['FLAGS'] = [ config['FLAGS'], "-I#{info[:include].shellescape}" ].compact.join(' ') if info[:include]
+
+        test_object = nil
+        if links = Compiler.transform(source, config, target[:builddir])
+          rules += links
+          test_object = links.last[:out]
+        end
+
+        # Code under test may use NSBundle.mainBundle.bundleIdentifier, so embed an Info.plist in the runner
+        info_plist = File.join(testdir, "#{info[:phony]}_Info.plist")
+        rules << {
+          name:        'TestInfoPlist',
+          out:         info_plist,
+          identifier:  "com.macromates.#{info[:phony]}.#{target[:name]}",
+          command:     "echo '<plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>$identifier</string></dict></plist>' > $out",
+          description: 'Create ‘${out}’…',
+        }
+
+        objects, ln_flags, deps = link_inputs(target, targets)
+        rules << {
+          name:         'Link',
+          in:           [ *objects, test_object ].sort.uniq,
+          out:          runner,
+          flags:        [ *ln_flags, "-Wl,-sectcreate,__TEXT,__info_plist,#{info_plist.shellescape}" ].join(' '),
+          command:      'xcrun --sdk macosx clang -o $out $flags $in',
+          description:  'Link ‘${out}’…',
+          dependencies: [ *deps, info_plist ],
+        }
+
+        rules << {
+          name:         'RunTestIfChanged',
+          in:           runner,
+          out:          runner + '.passed',
+          command:      "#{__dir__}/run_test $in && touch $out",
+          description:  'Test ‘${in}’…',
+          dependencies: "#{__dir__}/run_test",
+          pool:         'console',
+        }
+        passed << rules.last[:out] if kind == :tests # cxx_tests are interactive GUI tests
+
+        rules << {
+          name:         'RunTest',
+          in:           runner,
+          out:          File.join(testdir, ".always-run-#{info[:phony]}"),
+          command:      "#{__dir__}/run_test $in",
+          description:  'Test ‘${in}’…',
+          dependencies: "#{__dir__}/run_test",
+          pool:         'console',
+        }
+
+        rules << {
+          name: 'phony',
+          in:   rules.last[:out],
+          out:  target[:identifier] + '/' + info[:phony],
+        }
+      end
+
+      target[:build][:rules] += rules
+      target[:build][:tests]  = passed
+    end
+
+    target[:build][:tests]
+  end
+
   def notarize(archs, targets)
     target = archs.values.first
 
@@ -1491,6 +1597,8 @@ if __FILE__ == $PROGRAM_NAME
 
   targets.each { |_, archs| archs.each { |_, target| Target.prepare(target) } }
 
+  test_results = Hash.new { |hash, key| hash[key] = [] }
+
   targets.each do |target_name, archs|
     Target.expand(archs, targets)
     Target.notarize(archs, targets)
@@ -1499,10 +1607,25 @@ if __FILE__ == $PROGRAM_NAME
     Target.defines(archs, targets)
   end
 
+  # Separate pass so shared rules (e.g. precompiled headers) are first created for the regular targets
+  targets.each do |target_name, archs|
+    test_results[archs.values.first[:variables]['config']] += Target.tests(archs, targets)
+  end
+
   rules = targets.flat_map do |_, archs|
     archs.flat_map do |_, target|
       target[:build][:rules].reject { |rule| rule[:duplicate] }
     end
+  end
+
+  # Run all tests (that are affected by changes) via ‘tests’ (or ‘tests/<config>’)
+  test_results.each do |config, passed|
+    next if passed.empty?
+    rules << {
+      name: 'phony',
+      in:   passed.sort,
+      out:  config ? "tests/#{config}" : 'tests',
+    }
   end
 
   if default_config
