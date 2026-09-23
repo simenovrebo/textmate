@@ -103,8 +103,14 @@ void test_untrusted_page_is_refused ()
 void test_stopped_task_is_not_used ()
 {
 	HOFileSchemeHandler* handler = [HOFileSchemeHandler new];
-	FakeSchemeTask* task = StartTask(handler, URL(@"site/css/style.css"));
-	StopTask(handler, task); // Before the file (read on a background queue) is sent
+	// Start and stop in the same run loop cycle, so the file (read on a background queue) cannot be sent in between
+	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:URL(@"site/css/style.css")]];
+	FakeSchemeTask* task = [[FakeSchemeTask alloc] initWithRequest:request];
+	OnMain(^{
+		StartSchemeTask(handler, task);
+		task.stopped = YES;
+		StopSchemeTask(handler, task);
+	});
 
 	OAK_ASSERT(!WaitForTask(task, 1));
 	OAK_ASSERT(!task.usedAfterStop);
