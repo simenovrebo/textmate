@@ -40,6 +40,13 @@
 @end
 
 // Tests run on background threads while the main run loop runs; scheme handlers are used on the main thread.
+
+// The handlers do not use the web view argument
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnonnull"
+static void StartSchemeTask (HOSchemeHandler* handler, id <WKURLSchemeTask> task) { [handler webView:nil startURLSchemeTask:task]; }
+static void StopSchemeTask (HOSchemeHandler* handler, id <WKURLSchemeTask> task)  { [handler webView:nil stopURLSchemeTask:task]; }
+#pragma clang diagnostic pop
 static void OnMain (void(^block)())
 {
 	dispatch_sync(dispatch_get_main_queue(), block);
@@ -50,7 +57,7 @@ static FakeSchemeTask* StartTask (HOSchemeHandler* handler, NSString* urlString,
 	NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:urlString]];
 	request.mainDocumentURL = mainDocumentURLString ? [NSURL URLWithString:mainDocumentURLString] : request.URL;
 	FakeSchemeTask* task = [[FakeSchemeTask alloc] initWithRequest:request];
-	OnMain(^{ [handler webView:nil startURLSchemeTask:task]; });
+	OnMain(^{ StartSchemeTask(handler, task); });
 	return task;
 }
 
@@ -58,7 +65,7 @@ static void StopTask (HOSchemeHandler* handler, FakeSchemeTask* task)
 {
 	OnMain(^{
 		task.stopped = YES;
-		[handler webView:nil stopURLSchemeTask:task];
+		StopSchemeTask(handler, task);
 	});
 }
 
