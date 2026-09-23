@@ -16,6 +16,7 @@
 #import <ns/ns.h>
 #import <oak/oak.h>
 #import <plist/uuid.h>
+#import <oak/ipc.h>
 
 @interface actionCommandObj : NSObject
 @property (nonatomic, readonly) NSString* name;
@@ -90,7 +91,7 @@ static void* kOakCommitWindowIncludeItemObserverContext = &kOakCommitWindowInclu
 @property (nonatomic) NSMutableArray*                    parameters;
 @property (nonatomic) std::map<std::string, std::string> environment;
 @property (nonatomic) NSArrayController*                 arrayController;
-@property (nonatomic) NSString*                          clientPortName;
+@property (nonatomic) int                                clientSocket; // -1 when the reply has been sent
 
 @property (nonatomic) NSPopUpButton*                     previousCommitMessagesPopUpButton;
 @property (nonatomic) OakDocumentView*                   documentView;
@@ -123,13 +124,13 @@ static void* kOakCommitWindowIncludeItemObserverContext = &kOakCommitWindowInclu
 @end
 
 @implementation OakCommitWindow
-- (id)initWithOptions:(NSDictionary*)someOptions
+- (id)initWithOptions:(NSDictionary*)someOptions clientSocket:(int)clientSocket
 {
 	if((self = [super init]))
 	{
 		_commitButtonPrefix = @"Commit";
 
-		self.clientPortName = someOptions[kOakCommitWindowClientPortName];
+		_clientSocket = clientSocket;
 		[self parseArguments:someOptions[kOakCommitWindowArguments]];
 		self.environment = convert(someOptions[kOakCommitWindowEnvironment]);
 
@@ -231,6 +232,9 @@ static void* kOakCommitWindowIncludeItemObserverContext = &kOakCommitWindowInclu
 
 - (void)dealloc
 {
+	if(_clientSocket != -1)
+		close(_clientSocket); // the client fails as it gets no reply
+
 	[self.arrayController removeObserver:self forKeyPath:@"arrangedObjects.commit" context:kOakCommitWindowIncludeItemObserverContext];
 
 	if(_eventMonitor)
@@ -550,39 +554,35 @@ static void* kOakCommitWindowIncludeItemObserverContext = &kOakCommitWindowInclu
 
 - (void)sendCommitMessageToClient:(BOOL)success andContinue:(BOOL)continueFlag
 {
-	if(!self.clientPortName) // Reply already sent
+	if(_clientSocket == -1) // Reply already sent
 		return;
 
-	if(id proxy = [NSConnection rootProxyForConnectionWithRegisteredName:self.clientPortName host:nil])
+	NSDictionary* reply = @{ kOakCommitWindowReturnCode: @1 };
+	if(success)
 	{
-		[proxy setProtocolForProxy:@protocol(OakCommitWindowClientProtocol)];
-
-		if(success)
+		NSString* commitMessage = self.documentView.document.content;
+		NSMutableArray* outputArray = [NSMutableArray array];
+		[outputArray addObject:[NSString stringWithFormat:@" -m '%@' ", [commitMessage stringByReplacingOccurrencesOfString:@"'" withString:@"'\"'\"'"]]];
+		for(CWItem* item in [_arrayController arrangedObjects])
 		{
-			NSString* commitMessage = self.documentView.document.content;
-			NSMutableArray* outputArray = [NSMutableArray array];
-			[outputArray addObject:[NSString stringWithFormat:@" -m '%@' ", [commitMessage stringByReplacingOccurrencesOfString:@"'" withString:@"'\"'\"'"]]];
-			for(CWItem* item in [_arrayController arrangedObjects])
-			{
-				if(item.commit)
-					[outputArray addObject:[NSString stringWithCxxString:path::escape(to_s(item.path))]];
-			}
-			[outputArray addObject:@"\n"];
-			[proxy connectFromServerWithOptions:@{
-				kOakCommitWindowStandardOutput: [outputArray componentsJoinedByString:@" "],
-				kOakCommitWindowReturnCode:     @0,
-				kOakCommitWindowContinue:       @(continueFlag),
-			}];
+			if(item.commit)
+				[outputArray addObject:[NSString stringWithCxxString:path::escape(to_s(item.path))]];
 		}
-		else
-		{
-			[proxy connectFromServerWithOptions:@{
-				kOakCommitWindowReturnCode:     @1,
-			}];
-		}
-		[self saveCommitMessage];
-		self.clientPortName = nil;
+		[outputArray addObject:@"\n"];
+		reply = @{
+			kOakCommitWindowStandardOutput: [outputArray componentsJoinedByString:@" "],
+			kOakCommitWindowReturnCode:     @0,
+			kOakCommitWindowContinue:       @(continueFlag),
+		};
 	}
+
+	NSData* data = [NSPropertyListSerialization dataWithPropertyList:reply format:NSPropertyListBinaryFormat_v1_0 options:0 error:nullptr];
+	if(!data || !oak::ipc::send_message(_clientSocket, std::string((char const*)data.bytes, data.length)))
+		os_log_error(OS_LOG_DEFAULT, "Failed to send reply to commit window client: %{errno}d", errno);
+	close(_clientSocket);
+	_clientSocket = -1;
+
+	[self saveCommitMessage];
 
 	[self performSelector:@selector(setRetainedSelf:) withObject:nil afterDelay:0];
 }
@@ -873,7 +873,11 @@ static void* kOakCommitWindowIncludeItemObserverContext = &kOakCommitWindowInclu
 @end
 
 @interface OakCommitWindowServer ()
-@property (nonatomic) NSConnection* connection;
+{
+	int _listenSocket;
+	dispatch_source_t _acceptSource;
+	std::string _socketPath;
+}
 @end
 
 @implementation OakCommitWindowServer
@@ -887,17 +891,56 @@ static void* kOakCommitWindowIncludeItemObserverContext = &kOakCommitWindowInclu
 {
 	if(self = [super init])
 	{
-		_connection = [NSConnection new];
-		[_connection setRootObject:self];
+		oak::ipc::remove_stale_sockets(kOakCommitWindowSocketName);
+		_socketPath   = oak::ipc::socket_path(kOakCommitWindowSocketName, getpid());
+		_listenSocket = oak::ipc::listen(_socketPath);
+		if(_listenSocket == -1)
+		{
+			os_log_error(OS_LOG_DEFAULT, "Failed to listen on ‘%{public}s’: %{errno}d", _socketPath.c_str(), errno);
+			return self;
+		}
 
-		NSString* serviceName = [NSString stringWithFormat:@"%@.CommitWindow.%d", NSBundle.mainBundle.bundleIdentifier, getpid()];
-		if([_connection registerName:serviceName] == NO)
-			os_log_error(OS_LOG_DEFAULT, "Failed to setup connection ‘%@’", serviceName);
+		int listenSocket = _listenSocket;
+		__weak OakCommitWindowServer* weakSelf = self;
+		_acceptSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_READ, listenSocket, 0, dispatch_get_main_queue());
+		dispatch_source_set_event_handler(_acceptSource, ^{
+			int fd = oak::ipc::accept(listenSocket);
+			if(fd == -1)
+				return;
+
+			// Read the request in the background, so that a client that does not send one cannot block TextMate
+			dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+				struct timeval timeout = { 10, 0 };
+				setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+				std::string data;
+				NSDictionary* options;
+				if(oak::ipc::receive_message(fd, &data))
+					options = [NSPropertyListSerialization propertyListWithData:[NSData dataWithBytes:data.data() length:data.size()] options:NSPropertyListImmutable format:nullptr error:nullptr];
+
+				timeout = { 0, 0 };
+				setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+				dispatch_async(dispatch_get_main_queue(), ^{
+					if([options isKindOfClass:[NSDictionary class]] && weakSelf)
+							[weakSelf connectFromClientWithOptions:options clientSocket:fd];
+					else	close(fd);
+				});
+			});
+		});
+		dispatch_resume(_acceptSource);
+
+		[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(applicationWillTerminate:) name:NSApplicationWillTerminateNotification object:NSApp];
 	}
 	return self;
 }
 
-- (void)connectFromClientWithOptions:(NSDictionary*)someOptions
+- (void)applicationWillTerminate:(NSNotification*)aNotification
+{
+	unlink(_socketPath.c_str());
+}
+
+- (void)connectFromClientWithOptions:(NSDictionary*)someOptions clientSocket:(int)clientSocket
 {
 	NSWindow* projectWindow = [NSApp mainWindow];
 	if(NSString* identifier = [someOptions valueForKeyPath:@"environment.TM_PROJECT_UUID"])
@@ -915,7 +958,7 @@ static void* kOakCommitWindowIncludeItemObserverContext = &kOakCommitWindowInclu
 		}
 	}
 
-	OakCommitWindow* commitWindow = [[OakCommitWindow alloc] initWithOptions:someOptions];
+	OakCommitWindow* commitWindow = [[OakCommitWindow alloc] initWithOptions:someOptions clientSocket:clientSocket];
 	[commitWindow beginSheetModalForWindow:projectWindow completionHandler:^(NSModalResponse returnCode){ }];
 }
 @end
