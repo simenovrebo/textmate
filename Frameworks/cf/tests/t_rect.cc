@@ -40,6 +40,9 @@ static CGRect from_str (std::string const& s)
 			}
 		}
 	}
+
+	if(x1 <= x0) // No ‘x’ found: x1 - x0 would underflow
+		return CGRectZero;
 	return CGRectMake(x0, y0, x1 - x0, y1 - y0);
 }
 
