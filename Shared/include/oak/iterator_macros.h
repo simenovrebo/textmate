@@ -1,6 +1,8 @@
 #ifndef OAK_ITERATOR_MACROS_H_1SQFE1YN
 #define OAK_ITERATOR_MACROS_H_1SQFE1YN
 
+#include "reverse_iterator.h"
+
 // The essential macro is foreeach, rforeach doing a reverse iteration. Example:
 //
 // 	std::vector<char> v;
@@ -47,7 +49,7 @@ decltype(c) u = (c); foreach(v, std::begin(u), std::end(u))
 #endif
 
 #ifndef riterate
-#define riterate(v,c) foreach(v, std::reverse_iterator<decltype(std::end(c))>(std::end(c)), std::reverse_iterator<decltype(std::begin(c))>(std::begin(c)))
+#define riterate(v,c) foreach(v, oak::reverse_iterator<decltype(std::end(c))>(std::end(c)), oak::reverse_iterator<decltype(std::begin(c))>(std::begin(c)))
 #endif
 
 #endif /* end of include guard: OAK_ITERATOR_MACROS_H_1SQFE1YN */

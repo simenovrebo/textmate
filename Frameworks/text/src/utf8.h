@@ -2,6 +2,7 @@
 #define TEXT_UTF8_H_8I8S2ODM
 
 #include <oak/debug.h>
+#include <oak/reverse_iterator.h>
 
 namespace utf8
 {
@@ -330,8 +331,8 @@ namespace diacritics
 		iterator_t<_BaseIter> begin () const                     { return first; }
 		iterator_t<_BaseIter> end () const                       { return last; }
 
-		std::reverse_iterator< iterator_t<_BaseIter> > rbegin () { return std::reverse_iterator< iterator_t<_BaseIter> >(last); }
-		std::reverse_iterator< iterator_t<_BaseIter> > rend ()   { return std::reverse_iterator< iterator_t<_BaseIter> >(first); }
+		oak::reverse_iterator< iterator_t<_BaseIter> > rbegin () { return oak::reverse_iterator< iterator_t<_BaseIter> >(last); }
+		oak::reverse_iterator< iterator_t<_BaseIter> > rend ()   { return oak::reverse_iterator< iterator_t<_BaseIter> >(first); }
 
 	private:
 		iterator_t<_BaseIter> first, last;

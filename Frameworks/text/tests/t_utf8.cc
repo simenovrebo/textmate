@@ -109,3 +109,16 @@ void test_sanitize ()
 	OAK_ASSERT_EQ(sanitize("\xF0\xA0"),           "");
 	OAK_ASSERT_EQ(sanitize("\xF0"),               "");
 }
+
+void test_reverse_iteration ()
+{
+	std::string const str = "Ærøskøbing ñ – ⌘";
+	auto range = diacritics::make_range(str.data(), str.data() + str.size());
+
+	std::vector<uint32_t> forward(range.begin(), range.end());
+	std::vector<uint32_t> backward(range.rbegin(), range.rend());
+
+	std::reverse(forward.begin(), forward.end());
+	OAK_ASSERT_EQ(backward.size(), forward.size());
+	OAK_ASSERT(backward == forward);
+}

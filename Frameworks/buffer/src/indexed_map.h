@@ -43,8 +43,8 @@ public:
 		using iterator_category = std::bidirectional_iterator_tag;
 		using value_type        = std::pair<ssize_t, _ValT>;
 		using difference_type   = std::ptrdiff_t;
-		using pointer           = value_type*;
-		using reference         = value_type&;
+		using pointer           = value_type const*;
+		using reference         = value_type const&;
 
 		iterator (tree_t& tree, typename tree_t::iterator const& base) : _tree(tree), _base(base) { update_value(); }
 

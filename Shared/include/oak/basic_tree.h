@@ -3,6 +3,7 @@
 
 #include <text/format.h>
 #include <oak/debug.h>
+#include "reverse_iterator.h"
 
 namespace oak
 {
@@ -194,7 +195,7 @@ namespace oak
 			basic_tree_t* _tree;
 		};
 
-		typedef std::reverse_iterator<iterator> reverse_iterator;
+		typedef oak::reverse_iterator<iterator> reverse_iterator;
 
 		iterator begin ()                    { node_t* res = _root; while(!res->_left->is_null()) res = res->_left; return iterator(res, this); }
 		iterator end ()                      { return iterator(node_t::null_ptr(), this); }

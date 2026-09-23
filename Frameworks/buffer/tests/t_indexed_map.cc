@@ -369,3 +369,19 @@ void test_bind_left_right ()
 		}
 	}
 }
+
+void test_reverse_iteration ()
+{
+	indexed_map_t<int> map;
+	for(ssize_t key : { 30, 10, 50, 20, 40 })
+		map.set(key, int(key / 10));
+
+	std::vector<std::pair<ssize_t, int>> forward(map.begin(), map.end());
+	std::vector<std::pair<ssize_t, int>> backward;
+	riterate(it, map)
+		backward.emplace_back(it->first, it->second);
+
+	std::reverse(forward.begin(), forward.end());
+	OAK_ASSERT_EQ(backward.size(), 5);
+	OAK_ASSERT(backward == forward);
+}
