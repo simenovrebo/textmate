@@ -859,13 +859,15 @@ namespace path
 			}
 			else
 			{
-				// Callers need a path that does not exist yet (e.g. GIT_INDEX_FILE or a directory to create).
-				// mktemp() is deprecated because another user could create the file first, but the directory
-				// is per-user (_CS_DARWIN_USER_TEMP_DIR or _CS_DARWIN_USER_CACHE_DIR) and not writable by others.
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-				mktemp(&str[0]);
-#pragma clang diagnostic pop
+				// Callers need a path that does not exist yet (e.g. GIT_INDEX_FILE or a directory to create), so
+				// mkstemp() cannot be used. Like mktemp() (deprecated because another user could create the file
+				// first), replace the X’s with random characters; the directory is per-user (_CS_DARWIN_USER_TEMP_DIR
+				// or _CS_DARWIN_USER_CACHE_DIR) and not writable by others.
+				static char const kCharacters[] = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+				do {
+					for(size_t i = str.size() - 6; i < str.size(); ++i)
+						str[i] = kCharacters[arc4random_uniform(sizeof(kCharacters) - 1)];
+				} while(access(str.c_str(), F_OK) == 0);
 			}
 		}
 		return str;

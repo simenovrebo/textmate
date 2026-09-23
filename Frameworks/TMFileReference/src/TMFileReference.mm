@@ -254,16 +254,9 @@ static NSImage* ImageNamed (NSString* imageName)
 
 			if(drawLinkBadge)
 			{
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-				IconRef iconRef;
-				if(GetIconRef(kOnSystemDisk, kSystemIconsCreator, kAliasBadgeIcon, &iconRef) == noErr)
-				{
-					NSImage* badge = [[NSImage alloc] initWithIconRef:iconRef];
-					[badge drawInRect:dstRect fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1];
-					ReleaseIconRef(iconRef);
-				}
-#pragma clang diagnostic pop
+				// The system’s alias badge (previously from GetIconRef(), deprecated)
+				static NSImage* const aliasBadge = [[NSImage alloc] initWithContentsOfFile:@"/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/AliasBadgeIcon.icns"];
+				[aliasBadge drawInRect:dstRect fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1];
 			}
 
 			return YES;
