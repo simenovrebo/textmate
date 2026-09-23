@@ -1,6 +1,6 @@
 # Migrating HTML Output from WebView to WKWebView
 
-Status: plan, nothing implemented yet.
+Status: prototypes done (phase 1), all three risks resolved with public API. Implementation not started.
 
 The HTML output view (`OakHTMLOutputView`, used for bundle commands with HTML output) is built on the legacy `WebView`, deprecated since macOS 10.14 and responsible for 73 of the remaining deprecation warnings. This document describes what has to change, what bundles depend on, the risks, and the order of work.
 
@@ -47,7 +47,7 @@ Two requirements follow that `WKWebView` does not support directly:
 | Protocol-relative URLs (`x-txmt-…://example.com`) | Navigation: rewrite in `decidePolicyForNavigationAction:`. Subresources: the scheme handler fetches them over `https` (no public redirect API for scheme tasks). |
 | `didClearWindowObject:` + `WebScriptObject` | `WKUserScript` at document start defining `TextMate` in JavaScript, plus `WKScriptMessageHandlerWithReply` (macOS 11) for calls into native code. |
 | Asynchronous `system()` and live `outputString` | JavaScript object keeps state; native code pushes output/exit events with `evaluateJavaScript:` and receives `write`/`close`/`cancel` as messages. |
-| Synchronous `system()` | See Spike 2. |
+| Synchronous `system()` | Synchronous `XMLHttpRequest` to a custom scheme (see Prototype Results). |
 | `isBusy`, `progress` setters | JavaScript setters that post messages to update the status bar. |
 | `decidePolicyForNavigationAction:` (`txmt://`, external URLs) | `WKNavigationDelegate` `decidePolicyForNavigationAction:decisionHandler:`. |
 | `alert`, `confirm`, file upload, new windows, `window.close()` | `WKUIDelegate` equivalents (`runJavaScriptAlertPanel…`, `runOpenPanelWithParameters…`, `createWebViewWithConfiguration…`, `webViewDidClose:`). |
@@ -63,36 +63,72 @@ Two requirements follow that `WKWebView` does not support directly:
 | Swipe back/forward | `allowsBackForwardNavigationGestures`. |
 | `needsNewWebView` (WebKit bug 121232) | Verify whether still needed; likely removable. |
 
-## Risks and Spikes
+## Prototype Results
 
-Each spike is a small prototype that answers one question before committing to the design.
+The prototypes are standalone programs in `prototypes/` (not part of the build). Each loads real pages into an off-screen `WKWebView` and prints what it measured. Build and run with, for example:
 
-**Spike 1: `file://` resources from command output (highest risk).**
-Question: can a page served by a `WKURLSchemeHandler` load `file://` stylesheets, scripts, and images?
-Candidates, in order of preference:
-1. It works with public API (e.g. with `allowFileAccessFromFileURLs`-style preferences); verify.
-2. The scheme handler rewrites `file://` and `tm-file://` URLs in `src`/`href` attributes of the streamed HTML to a custom scheme it also serves. Risk: HTML is streamed in arbitrary chunks, so the rewriter must handle URLs split across chunks, and must leave text content alone.
-3. Private SPI to register the scheme as local. Works but can break with any macOS update; only as a last resort.
-Also check `file://` references created at runtime by JavaScript (e.g. `img.src = …`), which option 2 would miss.
+    cp -R prototypes/res /tmp/res
+    clang++ -std=c++2a -fobjc-arc -framework Cocoa -framework WebKit prototypes/spike1b.mm -o /tmp/spike1b && /tmp/spike1b /tmp/res
 
-**Spike 2: synchronous `TextMate.system()`.**
-Plan: implement the synchronous form with `prompt()` (JavaScript blocks, and `WKUIDelegate`'s `runJavaScriptTextInputPanelWithPrompt:…completionHandler:` replies when the command finishes). The prompt text carries a marker so real `prompt()` calls still show a panel. Alternative: synchronous `XMLHttpRequest` to a custom scheme, if WebKit allows synchronous loads from scheme handlers. Verify:
-- behavior when the command runs for a long time (the current 15-second “stop command?” alert should keep working),
-- that the app stays responsive while a page is blocked (it should: the page runs in a separate process),
-- `outputString` and `status` are available on the returned object.
+### 1. `file://` resources from command output — solved without private API
 
-**Spike 3: streaming.**
-Verify that a `WKURLSchemeHandler` response is rendered incrementally while data arrives (it should be, for `text/html` with unknown length), and measure against the current view with a command that prints output slowly.
+`spike1.mm`: a page served by a `WKURLSchemeHandler` cannot load `file://` resources, not even with the private `allowFileAccessFromFileURLs`/`allowUniversalAccessFromFileURLs` preferences. Serving the same files from a custom scheme works for stylesheets, scripts, and images (static and created from JavaScript):
 
-**Security.** The `TextMate` object can run shell commands, so it must only be available to command output and local files, as today (checked in `didClearWindowObject:`). With `WKWebView` the user script is injected into every page, so the message handlers must check the frame’s origin (`WKScriptMessage.frameInfo`) and ignore messages from any other scheme, and `disableJavaScriptAPI` must remove the script before loading.
+| Variant | Stylesheet | Script | `<img>` | Image created by JS |
+|---|---|---|---|---|
+| Default configuration | blocked | blocked | error | error |
+| Private file access preferences | blocked | blocked | error | error |
+| Custom scheme | loaded | loaded | loaded | loaded |
+
+How bundles reference local files (installed bundles):
+
+- In markup: `<link href="file://…">`, `<script src="file://…">`, `<img src="file://…">` (Bundle Support’s `htmloutput.rb`, Diff, SQL, Mercurial, Git).
+- `<base href="file://…">`, which makes all relative URLs local (Markdown preview, `htmloutput.rb`).
+- From JavaScript: `element.src = 'file://' + …` in `webpreview.js`, which is loaded by every page using `htmloutput.rb`.
+- Navigation: `window.location = "file://" + …` in inline scripts (Ruby’s `ri_to_html`, `man2html`).
+
+`spike1b.mm` implements and verifies the design:
+
+1. **Stream rewriter**: `file://` → `tm-file://` when in URL position, i.e. preceded by `"`, `'`, `=`, or `(`. This covers attributes, `<base>`, CSS `url(…)`, and the inline `window.location = "file://" + …` scripts, while text such as “see file://…” is left alone. It holds back up to 7 bytes at the end of a chunk, so URLs split across chunks are rewritten; verified for every combination of two split points.
+2. **Injected script** (document start): rewrites `file://` values assigned to `src`/`href` of `img`, `script`, `link`, `iframe`, `source`, and in `setAttribute()`.
+3. **`tm-file` scheme handler** serving files from disk (with the existing `index.html` and not-found handling).
+
+Results: stylesheet, script, `<base>`-relative image, `img.src` and `setAttribute('src')` from JavaScript all load, text is unchanged, and navigating to the rewritten `tm-file://` URL works.
+
+Limitation: a raw `window.location = 'file://…'` is blocked by WebKit before the navigation delegate is asked, so it cannot be intercepted. It only works when the rewriter sees it, i.e. in the streamed HTML. No installed bundle builds such a navigation in a separate `.js` file.
+
+### 2. Synchronous `TextMate.system()` — use synchronous XHR
+
+`spike2.mm` compares two techniques, running a command that prints to stdout and stderr, sleeps 1.5 s, and exits with 3:
+
+| | Result | Page blocked | App main thread meanwhile |
+|---|---|---|---|
+| `prompt()` answered by `WKUIDelegate` | correct (UTF-8 output, stderr, status 3) | 1511 ms | kept running (15 timer ticks of 100 ms) |
+| Synchronous `XMLHttpRequest` to a custom scheme | correct | 1508 ms | kept running (16 ticks) |
+
+Both block only the page’s JavaScript, which runs in a separate process, so TextMate stays responsive. This is an improvement: today the synchronous form runs a nested run loop in TextMate itself.
+
+Decision: **synchronous XHR** to `x-txmt-js://system`. The request carries an `Origin` header set by WebKit (`x-txmt-filehandle://job`) that page JavaScript cannot forge, so the handler can verify that the caller is command output or a local file. The `prompt()` technique (which gets the frame’s origin from `WKFrameInfo`) is the fallback should WebKit restrict synchronous XHR. A real `prompt()` still works either way.
+
+### 3. Streaming — works, with one rule
+
+`spike3.mm` streams 8 chunks, 300 ms apart, each with a paragraph and an inline script:
+
+- Each chunk is rendered and its script runs as it arrives (about 315 ms apart; the first after 525 ms including web process start).
+- `stopLoading` (⌘.) calls `stopURLSchemeTask:` after 7 ms, which is where the command must be killed.
+- **Any call to the task after `stopURLSchemeTask:` raises `NSInternalInconsistencyException`** (“This task has already been stopped”). The handler must record that the task was stopped and never use it afterwards; unlike `NSURLProtocol`, forgetting this crashes.
+
+### Security
+
+The `TextMate` object can run shell commands, so it must only be available to command output and local files, as today (checked in `didClearWindowObject:`). With `WKWebView` the user script is injected into every page, so the native side checks the caller: the `Origin` header for the `x-txmt-js` scheme handler and `WKScriptMessage.frameInfo.securityOrigin` for messages, accepting only `x-txmt-filehandle` and `tm-file`. `disableJavaScriptAPI` removes the script before loading.
 
 ## Phases
 
 Each phase is committed and pushed separately and leaves TextMate working.
 
-1. **Spikes 1–3** as standalone test programs (not committed to the app), with results added to this document.
-2. **Scheme handlers.** `WKURLSchemeHandler` for `x-txmt-filehandle` (streaming output, stop kills the process) and `tm-file`, independent of the view. Unit tests: a fake command writing to a pipe, served to a hidden `WKWebView`, checking the rendered text.
-3. **JavaScript bridge.** User script with the `TextMate` object and message handlers; asynchronous and synchronous `system()`, `outputString`, `onreadoutput`/`onreaderror`, `write`/`close`/`cancel`, `isBusy`, `progress`, `log`, `open`. Tests: an HTML test page exercising every call, run in a hidden `WKWebView`, reporting results back through the bridge.
+1. **Prototypes** — done, see Prototype Results.
+2. **Scheme handlers.** `WKURLSchemeHandler` for `x-txmt-filehandle` (streaming output through the `file://` rewriter, stop kills the process, no task access after stop) and `tm-file`, independent of the view. Unit tests: a fake command writing to a pipe, served to a hidden `WKWebView`, checking the rendered text.
+3. **JavaScript bridge.** User script with the `TextMate` object (including the `src`/`href` rewriting) and message handlers; asynchronous `system()`, synchronous `system()` via XHR, `outputString`, `onreadoutput`/`onreaderror`, `write`/`close`/`cancel`, `isBusy`, `progress`, `log`, `open`. Tests: an HTML test page exercising every call, run in a hidden `WKWebView`, reporting results back through the bridge.
 4. **Browser view.** Replace the `WebView` in `HOBrowserView` and `HOWebViewDelegateHelper`: navigation policy (`txmt://`, external links, protocol-relative URLs), UI delegate (alerts, file upload, new windows, `window.close()`), status text, console logging, progress, back/forward. Update the three `webView` uses in `OakCommand.mm`.
 5. **Output view features.** Auto scroll, scroll restore for atomic updates, find, copy selection to find/replace pasteboard, View Source, printing, stop/reload with the “Stop command?” sheet.
 6. **Remove the legacy code** (`OakFileHandleURLProtocol`, `HTMLTMFileDummyProtocol`, `WebView Additions.mm`, WebKit-legacy imports), and update the documentation of the JavaScript API.
@@ -116,6 +152,7 @@ Manual, with real bundles, comparing old and new builds side by side:
 
 ## Open Decisions
 
-1. If Spike 1 only works with private API: accept it, rewrite URLs in the stream, or require bundles to switch to a custom scheme?
-2. Should `TextMate.system()` in the synchronous form keep blocking the page (compatible) or also be offered as a `Promise` (new, optional API)?
-3. Minimum behavior for View Source of non-command pages (original source requires re-fetching).
+1. Should `TextMate.system()` also be offered with a `Promise` (new, optional API) in addition to the compatible synchronous and callback forms?
+2. Minimum behavior for View Source of non-command pages (original source requires re-fetching).
+
+Resolved by the prototypes: local files do not require private API (stream rewriting plus a small injected script), and the synchronous form keeps blocking the page, as bundles expect, without blocking TextMate.
