@@ -26,6 +26,10 @@
 // user’s default protocol (https unless the “defaultURLProtocol” user default is set) and relay the result.
 - (void)task:(id <WKURLSchemeTask>)task loadProtocolRelativeURL:(NSURL*)url;
 
+// YES for command output (x-txmt-filehandle://job/…) and local files (tm-file://…), but not for
+// protocol-relative URLs using these schemes (e.g. x-txmt-filehandle://cdn.example.com/lib.js)
++ (BOOL)isTrustedURL:(NSURL*)url;
+
 // YES if the request comes from command output, a local file, or a load not initiated by a web page
 + (BOOL)isTrustedRequest:(NSURLRequest*)request;
 @end

@@ -18,10 +18,19 @@ static NSString* const kUserDefaultsDefaultURLProtocolKey = @"defaultURLProtocol
 	}];
 }
 
++ (BOOL)isTrustedURL:(NSURL*)url
+{
+	NSString* host = url.host;
+	if([url.scheme isEqualToString:@"x-txmt-filehandle"])
+		return [host isEqualToString:@"job"];
+	else if([url.scheme isEqualToString:@"tm-file"]) // same rule as HOFileSchemeHandler’s pathForURL:
+		return ![host containsString:@"."] || [NSFileManager.defaultManager fileExistsAtPath:[@"/" stringByAppendingPathComponent:host]];
+	return NO;
+}
+
 + (BOOL)isTrustedRequest:(NSURLRequest*)request
 {
-	NSString* scheme = request.mainDocumentURL.scheme;
-	return !scheme || [@[ @"x-txmt-filehandle", @"tm-file" ] containsObject:scheme];
+	return !request.mainDocumentURL || [self isTrustedURL:request.mainDocumentURL];
 }
 
 - (instancetype)init

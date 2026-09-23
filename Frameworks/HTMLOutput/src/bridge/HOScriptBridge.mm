@@ -11,9 +11,12 @@
 
 NSString* const kHOScriptBridgeURLScheme = @"x-txmt-js";
 
-static BOOL IsTrustedScheme (NSString* scheme)
+static BOOL IsTrustedOrigin (NSString* protocol, NSString* host)
 {
-	return [@[ @"x-txmt-filehandle", @"tm-file" ] containsObject:scheme];
+	NSURLComponents* components = [NSURLComponents new];
+	components.scheme = protocol;
+	components.host   = host;
+	return protocol && [HOSchemeHandler isTrustedURL:components.URL];
 }
 
 static NSString* JSONString (id obj)
@@ -265,7 +268,7 @@ static NSString* JSONString (id obj)
 
 - (void)userContentController:(WKUserContentController*)controller didReceiveScriptMessage:(WKScriptMessage*)message
 {
-	if(!_enabled || !IsTrustedScheme(message.frameInfo.securityOrigin.protocol) || ![message.body isKindOfClass:[NSDictionary class]])
+	if(!_enabled || !IsTrustedOrigin(message.frameInfo.securityOrigin.protocol, message.frameInfo.securityOrigin.host) || ![message.body isKindOfClass:[NSDictionary class]])
 	{
 		os_log_error(OS_LOG_DEFAULT, "Ignoring TextMate JavaScript message from %{public}@://%{public}@", message.frameInfo.securityOrigin.protocol, message.frameInfo.securityOrigin.host);
 		return;
@@ -280,10 +283,11 @@ static NSString* JSONString (id obj)
 		WKFrameInfo* frame = message.frameInfo;
 		id commandIdentifier = body[@"id"];
 		__weak HOScriptBridge* weakSelf = self;
+		__weak WKWebView* webView = message.webView; // not necessarily self.webView: windows opened by the page share the configuration
 
 		void(^send)(NSString*, id) = ^(NSString* kind, id value){
 			NSString* script = [NSString stringWithFormat:@"TextMate._commandEvent(%@, %@, %@)", JSONString(commandIdentifier), JSONString(kind), JSONString(value)];
-			[weakSelf.webView evaluateJavaScript:script inFrame:frame inContentWorld:WKContentWorld.pageWorld completionHandler:nil];
+			[webView evaluateJavaScript:script inFrame:frame inContentWorld:WKContentWorld.pageWorld completionHandler:nil];
 		};
 
 		_commands[key] = [[HOScriptCommand alloc] initWithCommand:body[@"command"] environment:_environment closeInput:NO output:^(NSString* str, BOOL isError){
@@ -340,7 +344,7 @@ static NSString* JSONString (id obj)
 	NSURLRequest* request = task.request;
 	NSString* origin = [request valueForHTTPHeaderField:@"Origin"];
 	NSDictionary* body = request.HTTPBody ? [NSJSONSerialization JSONObjectWithData:request.HTTPBody options:0 error:nullptr] : nil;
-	if(!_enabled || !IsTrustedScheme([NSURL URLWithString:origin].scheme) || ![request.URL.host isEqualToString:@"system"] || ![body[@"command"] isKindOfClass:[NSString class]])
+	if(!_enabled || !(origin && [HOSchemeHandler isTrustedURL:[NSURL URLWithString:origin]]) || ![request.URL.host isEqualToString:@"system"] || ![body[@"command"] isKindOfClass:[NSString class]])
 	{
 		os_log_error(OS_LOG_DEFAULT, "Refusing %{public}@ from %{public}@", request.URL, origin);
 		return [self task:task didFailWithError:[NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNoPermissionsToReadFile userInfo:nil]];
