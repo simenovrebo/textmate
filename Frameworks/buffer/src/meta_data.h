@@ -16,6 +16,7 @@ namespace ng
 		bool misspelled_at (size_t i) const;
 		std::pair<size_t, size_t> next_misspelling (size_t from) const;
 		void recheck (buffer_t const* buffer, size_t from, size_t to);
+		void recheck_skipped (buffer_t const* buffer); // check what was parsed while disabled
 
 	private:
 		void replace (buffer_t* buffer, size_t from, size_t to, size_t len);
@@ -24,6 +25,7 @@ namespace ng
 		typedef indexed_map_t<bool> tree_t;
 		tree_t _misspellings;    // true = misspelled, false = proper
 		bool _disabled = false;
+		std::pair<size_t, size_t> _skipped = { SIZE_T_MAX, 0 }; // parsed while disabled
 	};
 
 	struct symbols_t : meta_data_t

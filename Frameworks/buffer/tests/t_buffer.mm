@@ -123,6 +123,31 @@ void test_spelling ()
 	OAK_ASSERT(bad == expected);
 }
 
+void test_spelling_after_synchronous_parsing ()
+{
+	// wait_for_repair() does not spell check while parsing, but does afterwards when called on the main thread
+	// (e.g. for the symbol list); misspellings in other lines are kept
+	ng::buffer_t buf;
+	buf.set_grammar(TestGrammarItem);
+	buf.set_spelling_language("en");
+	buf.set_live_spelling(true);
+	buf.insert(0, "myfo god\nthat ibs nice\nlamere check\n");
+	buf.bump_revision();
+
+	__block size_t count = 0;
+	ng::buffer_t* bufPtr = &buf;
+	dispatch_sync(dispatch_get_main_queue(), ^{
+		bufPtr->wait_for_repair();
+		count = bufPtr->misspellings(0, bufPtr->size()).size();
+	});
+	OAK_ASSERT_EQ(count, 6);
+
+	buf.insert(buf.size(), "okay\n");
+	buf.bump_revision();
+	buf.wait_for_repair(); // not on the main thread
+	OAK_ASSERT_EQ(buf.misspellings(0, buf.size()).size(), 6);
+}
+
 void test_spelling_2 ()
 {
 	ng::buffer_t buf;

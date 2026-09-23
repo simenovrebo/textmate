@@ -73,7 +73,11 @@ namespace ng
 		_misspellings.remove(fromIter, toIter);
 
 		if(_disabled)
+		{
+			// The (possibly changed) text is checked later (see recheck_skipped)
+			_skipped = { std::min(_skipped.first, from), std::max(_skipped.second, to) };
 			return;
+		}
 
 		size_t revision = buffer->revision();
 		for(auto const& r : ranges)
@@ -113,6 +117,17 @@ namespace ng
 	void spelling_t::recheck (buffer_t const* buffer, size_t from, size_t to)
 	{
 		did_parse(buffer, from, to);
+	}
+
+	void spelling_t::recheck_skipped (buffer_t const* buffer)
+	{
+		if(_skipped.first < _skipped.second)
+		{
+			size_t const to = std::min(_skipped.second, buffer->size());
+			if(_skipped.first < to)
+				did_parse(buffer, _skipped.first, to);
+		}
+		_skipped = { SIZE_T_MAX, 0 };
 	}
 
 } /* ng */

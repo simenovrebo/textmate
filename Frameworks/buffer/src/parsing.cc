@@ -1,5 +1,6 @@
 #include "buffer.h"
 #include "meta_data.h"
+#include <pthread.h>
 
 namespace ng
 {
@@ -147,7 +148,12 @@ namespace ng
 		}
 
 		if(_spelling)
+		{
 			_spelling->set_disabled(false);
+			// Check what was parsed above when this is safe, i.e. when the main thread is not blocked by our caller
+			if(pthread_main_np())
+				_spelling->recheck_skipped(this);
+		}
 	}
 
 } /* ng */
