@@ -24,14 +24,6 @@ namespace oak
 	inline size_t os_minor () { return os_version()[1]; }
 	inline size_t os_patch () { return os_version()[2]; }
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-
-	inline OSStatus execute_with_privileges (AuthorizationRef authorization, std::string const& pathToTool, AuthorizationFlags options, char* const* arguments, FILE** communicationsPipe)
-	{
-		return AuthorizationExecuteWithPrivileges(authorization, pathToTool.c_str(), options, arguments, communicationsPipe);
-	}
-#pragma clang diagnostic pop
 } /* oak */
 
 #endif /* end of include guard: COMPAT_H_RD1Z6YZA */

@@ -5,37 +5,22 @@
 #include <regexp/regexp.h>
 #include <OakSystem/application.h>
 #include <oak/debug.h>
-#include <oak/compat.h>
 
 static std::string auth_tool_source_path ()
 {
 	return oak::application_t::path("Contents/Resources/PrivilegedTool");
 }
 
-static bool install_auth_tool (osx::authorization_t const& auth)
+static bool install_auth_tool ()
 {
-	bool res = false;
-
 	std::string const toolPath = auth_tool_source_path();
 	ASSERT(path::exists(toolPath));
 
-	if(auth.obtain_right("system.privilege.admin"))
-	{
-		char const* arguments[] = { "--install", nullptr };
-		FILE* fp = nullptr;
-		if(oak::execute_with_privileges(auth, toolPath, kAuthorizationFlagDefaults, (char**)arguments, &fp) == errAuthorizationSuccess)
-		{
-			int status;
-			int pid = wait(&status);
-			if(pid != -1 && WIFEXITED(status) && WEXITSTATUS(status) == 0)
-					res = true;
-			else	errno = WEXITSTATUS(status);
-
-			char buf[1024];
-			while(char* str = fgets(&buf[0], sizeof(buf), fp))
-				fprintf(stderr, "%s\n", str);
-		}
-	}
+	// The system asks the user for an administrator password
+	std::string output;
+	bool res = io::do_shell_script(path::escape(toolPath) + " --install 2>&1", true, &output);
+	if(!output.empty())
+		fprintf(stderr, "%s\n", output.c_str());
 	return res;
 }
 
@@ -63,7 +48,7 @@ connection_t connect_to_auth_server (osx::authorization_t const& auth, bool retr
 {
 	if(!path::exists(kAuthToolPath) || !path::exists(kAuthPlistPath) || auth_server_too_old())
 	{
-		if(!install_auth_tool(auth))
+		if(!install_auth_tool())
 			return connection_t();
 	}
 
@@ -85,7 +70,7 @@ connection_t connect_to_auth_server (osx::authorization_t const& auth, bool retr
 				{
 					res << "quit" << "legacy" << "legacy" << "legacy";
 
-					if(retry || !install_auth_tool(auth))
+					if(retry || !install_auth_tool())
 						return connection_t();
 
 					return connect_to_auth_server(auth, true);

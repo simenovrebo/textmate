@@ -4,6 +4,7 @@
 #include <text/format.h>
 #include <oak/datatypes.h>
 #include <crash/info.h>
+#include <thread>
 
 namespace io
 {
@@ -84,6 +85,38 @@ namespace io
 	process_t spawn (std::vector<std::string> const& args)
 	{
 		return spawn(args, oak::basic_environment());
+	}
+
+	bool do_shell_script (std::string const& script, bool withAdministratorPrivileges, std::string* output)
+	{
+		std::string quoted = "\"";
+		for(char ch : script)
+		{
+			if(ch == '"' || ch == '\\')
+				quoted += '\\';
+			quoted += ch;
+		}
+		quoted += "\"";
+
+		std::string const appleScript = "do shell script " + quoted + (withAdministratorPrivileges ? " with administrator privileges" : "") + " without altering line endings";
+		process_t process = spawn(std::vector<std::string>{ "/usr/bin/osascript", "-e", appleScript });
+		if(!process)
+			return false;
+		close(process.in);
+
+		std::string out, err;
+		std::thread errorReader([&]{ exhaust_fd(process.err, &err); });
+		exhaust_fd(process.out, &out);
+		errorReader.join();
+
+		int status = 0;
+		bool success = waitpid(process.pid, &status, 0) == process.pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+		if(!success)
+			os_log_error(OS_LOG_DEFAULT, "do shell script failed: %{public}s", err.c_str());
+
+		if(output)
+			*output = out.size() && out.back() == '\n' ? out.substr(0, out.size()-1) : out; // osascript adds a newline
+		return success;
 	}
 
 	void exhaust_fd (int fd, std::string* out)
