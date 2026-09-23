@@ -5,6 +5,6 @@ target "${dirname}" {
 	files resources/* "Resources"
 
 	sources src/**/*.mm
-	tests tests/*.cc
-	frameworks Cocoa WebKit
+	tests tests/*.{cc,mm}
+	frameworks Cocoa UniformTypeIdentifiers WebKit
 }
