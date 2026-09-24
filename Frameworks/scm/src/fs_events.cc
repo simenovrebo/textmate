@@ -21,7 +21,18 @@ namespace scm
 		FSEventStreamContext contextInfo = { 0, this, nullptr, nullptr, nullptr };
 		if(stream = FSEventStreamCreateRelativeToDevice(kCFAllocatorDefault, &callback_function, &contextInfo, device, cf::wrap(std::vector<std::string>(1, devicePath)), kFSEventStreamEventIdSinceNow, 1, kFSEventStreamCreateFlagNone))
 		{
-			FSEventStreamScheduleWithRunLoop(stream, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+			// Events are delivered on the thread that created the watcher (the main thread in the app)
+			if(CFRunLoopGetCurrent() == CFRunLoopGetMain())
+			{
+				FSEventStreamSetDispatchQueue(stream, dispatch_get_main_queue());
+			}
+			else
+			{
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+				FSEventStreamScheduleWithRunLoop(stream, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+#pragma clang diagnostic pop
+			}
 			FSEventStreamStart(stream);
 			FSEventStreamFlushSync(stream);
 		}
