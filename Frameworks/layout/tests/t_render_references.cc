@@ -27,9 +27,18 @@ void test_render_references ()
 	if(!manifest || !out)
 		return;
 
+	// RENDER_BUNDLES: folders with bundles, separated by colons (default: TextMate’s installed bundles)
 	std::string const support = path::join(path::home(), "Library/Application Support");
+	std::vector<std::string> folders = { path::join(support, "TextMate/Bundles"), path::join(support, "TextMate/Managed/Bundles") };
+	if(char const* bundles = getenv("RENDER_BUNDLES"))
+	{
+		std::string const str = bundles;
+		folders.clear();
+		for(auto const& folder : text::tokenize(str.begin(), str.end(), ':'))
+			folders.push_back(folder);
+	}
 	plist::cache_t cache;
-	auto index = create_bundle_index({ path::join(support, "TextMate/Bundles"), path::join(support, "TextMate/Managed/Bundles") }, cache);
+	auto index = create_bundle_index(folders, cache);
 	bundles::set_index(index.first, index.second);
 
 	std::vector<std::pair<std::string, std::string>> const themes = {
