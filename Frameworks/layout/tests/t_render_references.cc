@@ -1,6 +1,12 @@
-// Temporary harness (not committed): draws files with TextMate’s layout for TextMateSwiftUI’s reference images.
-// RENDER_MANIFEST is a file with lines “path|scope|tabSize|softTabs|softWrap”, RENDER_OUT the folder for the PNGs.
+// Draws files with TextMate’s layout for TextMateSwiftUI’s reference images (its bin/render-references).
+// RENDER_MANIFEST is a file with lines “path|scope|tabSize|softTabs|softWrap” or, with a sample’s options,
+// “path|scope|tabSize|softTabs|softWrap|wrapColumn|selection|freehanded|folded|showInvisibles|invisiblesMap”, and
+// RENDER_OUT the folder for the PNGs. A selection (like “3:5-4:2&6x8:3”) is drawn like in the focused view, with the
+// carets, and freehanded (as after ⌥-click) its carets past the end of a line are drawn there.
+// Folds are given as stored in com.macromates.folded. In the invisibles map, “\s”, “\t”, “\n” and “\\” are a
+// space, a tab, a newline and a backslash, and an empty map shows the default glyphs.
 #include <layout/layout.h>
+#include <selection/selection.h>
 #include <bundles/bundles.h>
 #include <bundles/load.h>
 #include <plist/fs_cache.h>
@@ -18,6 +24,29 @@ static void write_png (CGImageRef image, std::string const& path)
 	CGImageDestinationFinalize(dest);
 	CFRelease(dest);
 	CFRelease(url);
+}
+
+static std::string unescape (std::string const& str)
+{
+	std::string res;
+	for(size_t i = 0; i < str.size(); ++i)
+	{
+		if(str[i] == '\\' && i+1 < str.size())
+		{
+			switch(str[++i])
+			{
+				case 's': res += ' ';    break;
+				case 't': res += '\t';   break;
+				case 'n': res += '\n';   break;
+				default:  res += str[i]; break;
+			}
+		}
+		else
+		{
+			res += str[i];
+		}
+	}
+	return res;
 }
 
 void test_render_references ()
@@ -52,8 +81,16 @@ void test_render_references ()
 		std::vector<std::string> fields;
 		for(auto const& field : text::tokenize(line.begin(), line.end(), '|'))
 			fields.push_back(field);
-		if(fields.size() != 5)
+		if(fields.size() == 5)
+			fields.insert(fields.end(), { "0", "", "0", "", "0", "" });
+		if(fields.size() != 11)
 			continue;
+
+		size_t const wrapColumn         = std::stoul(fields[5]);
+		std::string const selection     = fields[6];
+		bool const freehanded           = fields[7] == "1";
+		std::string const folded        = fields[8].empty() ? NULL_STR : fields[8];
+		std::string const invisiblesMap = fields[9] == "1" ? unescape(fields[10]) : NULL_STR;
 
 		std::string const content = path::content(fields[0]);
 		for(auto const& theme : themes)
@@ -67,7 +104,16 @@ void test_render_references ()
 				buffer.set_grammar(grammars.front());
 			buffer.wait_for_repair();
 
-			ng::layout_t layout(buffer, parse_theme(bundles::lookup(oak::uuid_t(theme.second))), "Menlo-Regular", 12, fields[4] == "1");
+			ng::layout_t layout(buffer, parse_theme(bundles::lookup(oak::uuid_t(theme.second))), "Menlo-Regular", 12, fields[4] == "1", false, wrapColumn, folded);
+			ng::ranges_t ranges(0);
+			if(!selection.empty())
+			{
+				ranges = ng::convert(buffer, text::selection_t(selection));
+				for(auto& range : ranges)
+					range.freehanded = freehanded;
+				layout.set_is_key(true);
+				layout.set_draw_caret(true);
+			}
 			layout.set_viewport_size(CGSizeMake(700, 100));
 			for(CGFloat laidOut = 0; laidOut != layout.height(); ) // heights of lines not laid out are estimates
 			{
@@ -83,7 +129,7 @@ void test_render_references ()
 			CGContextScaleCTM(context, scale, scale);
 			CGContextTranslateCTM(context, 0, height);
 			CGContextScaleCTM(context, 1, -1);
-			layout.draw(ng::context_t(context, NULL_STR, nullptr), CGRectMake(0, 0, 700, height), true, ng::ranges_t(0));
+			layout.draw(ng::context_t(context, invisiblesMap, nullptr), CGRectMake(0, 0, 700, height), true, ranges);
 
 			CGImageRef image = CGBitmapContextCreateImage(context);
 			write_png(image, path::join(out, path::name(fields[0]) + "-" + theme.first + ".png"));
